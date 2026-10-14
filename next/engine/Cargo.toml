@@ -1,0 +1,11 @@
+[package]
+name = "linflow-engine"
+description = "Speech to text: whisper.cpp's Whisper and Parakeet, loaded at run time."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+linflow-core = { path = "../core" }
+libloading = "0.8"
+log = "0.4"

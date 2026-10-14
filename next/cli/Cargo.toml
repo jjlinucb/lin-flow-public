@@ -1,0 +1,18 @@
+[package]
+name = "linflow-cli"
+description = "Lin Flow's command line: the same commands as the Swift CLI where they overlap."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "linflow"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2.190"
+linflow-core = { path = "../core" }
+linflow-engine = { version = "0.1.0", path = "../engine" }
+linflow-platform = { version = "0.1.0", path = "../platform" }
+linflow-service = { version = "0.1.0", path = "../service" }
+serde_json = "1"

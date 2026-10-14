@@ -1,0 +1,7 @@
+# Shell scripts run under bash on the Mac and in Git Bash on Windows, and bash reads a carriage
+# return as part of the command. Keep them LF on every checkout, whatever core.autocrlf says.
+*.sh text eol=lf
+
+# The English word list the rebuild embeds with include_str!. The same bytes on every checkout, so
+# a Windows build reads the words the Mac does.
+next/core/resources/words.txt -text

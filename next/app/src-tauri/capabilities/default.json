@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What Lin Flow Next's own pages may do: call its commands, hear its events, move their own windows, open files it names.",
+  "windows": ["main", "pill", "toast"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "opener:default",
+    "dialog:default",
+    "autostart:default"
+  ]
+}

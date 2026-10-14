@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <!-- Windows Desktop projects build on macOS/Linux with this; only running needs Windows.
+         The whole app is written and compiled on John's Mac. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Version>2.0.0</Version>
+    <Company>John Lin</Company>
+    <Product>Lin Flow</Product>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+</Project>

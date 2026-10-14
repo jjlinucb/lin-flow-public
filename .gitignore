@@ -1,0 +1,14 @@
+.DS_Store
+.venv/
+dist/
+logs/
+state/
+__pycache__/
+*.pyc
+.build/
+.swiftpm/
+*.xcodeproj
+windows/**/bin/
+windows/**/obj/
+windows/native/
+

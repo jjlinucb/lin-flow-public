@@ -1,0 +1,177 @@
+# Lin Flow Next on GitHub's runners: the core, the laws and the window on Linux, and the whole app
+# built and tested on Windows, the system the Mac can only cross-check. The Mac runs the same
+# commands on John's machine. What needs a person (the talk key, a microphone, a call) is listed in
+# rebuild/verification.md.
+#
+# Cost, since 2026-10-14. GitHub bills a Windows minute as two, and this account's 2,000 included
+# minutes reached 90% with eighteen days still to run. The tests and the lint were two jobs side by
+# side with a cache key each, which is quick on the clock and pays to compile the workspace's
+# dependencies twice; they are one job now, and clippy reuses what the tests built. The release
+# build stays separate and on main only: it optimizes the app's own code every time, so it shares
+# nothing worth sharing. Each job keeps its compiled dependencies in a cache saved from main, which
+# pull requests read too, so a run compiles only what changed. Debug info is off, since CI never
+# reads it and it made every build, link and cache bigger. A newer push to a pull request cancels
+# the run it replaces.
+name: next
+
+on:
+  push:
+    branches: [main]
+    paths: ["next/**", ".github/workflows/next.yml"]
+  pull_request:
+    paths: ["next/**", ".github/workflows/next.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: next-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: next
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: next/app/package-lock.json
+
+      - name: The window's tests and types
+        working-directory: next/app
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Rust
+        run: rustup update stable && rustup default stable && rustup component add clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: next
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The app itself needs WebKitGTK on Linux, and nobody runs it there. Everything under it
+      # builds against the platform crate's stand-ins.
+      - name: Tests, the laws among them
+        run: cargo test --workspace --exclude lin-flow-next --no-fail-fast
+
+      - name: Lint
+        run: cargo clippy --workspace --exclude lin-flow-next --all-targets -- -D warnings
+
+  # Tests and lint were two matrix jobs, side by side, for wall-clock speed. They are one job
+  # again because wall clock is not what this repo is short of: GitHub bills a Windows minute as
+  # two, each job carried its own rust-cache key, and so the workspace's dependencies were
+  # compiled twice to be looked at twice. In October that reached 90% of the account's 2,000
+  # included minutes with the reset still eighteen days out, and nothing else on the account
+  # spends them.
+  #
+  # Sequential costs minutes only where the work is genuinely separate; here clippy follows a
+  # build that has already compiled every dependency, and reuses it. Both checks still run, on
+  # pull requests and on main, which is why this is the trade taken rather than moving lint to
+  # main alone.
+  #
+  # It builds the window first, because the app embeds the built pages and does not compile
+  # without them.
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: next
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: next/app/package-lock.json
+
+      - name: The window
+        working-directory: next/app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Rust
+        run: rustup update stable && rustup default stable && rustup component add clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: next
+          key: checks
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Here the engine's layout test checks whisper.cpp's structs as MSVC lays them out. Every
+      # crate's tests run even after one fails, so a single run shows all that Windows breaks.
+      - name: tests
+        run: cargo test --workspace --no-fail-fast
+
+      # Runs even when the tests failed, so one run still reports everything Windows has to say.
+      - name: lint
+        if: '!cancelled()'
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Tests and lint already compile every line of the app on a pull request. The optimized build
+  # waits for main, where a release would come from.
+  windows-app:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: next
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: next/app/package-lock.json
+
+      - name: The window
+        working-directory: next/app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Rust
+        run: rustup update stable && rustup default stable && rustup component add clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: next
+          key: app
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build the app
+        run: cargo build --release -p lin-flow-next -p linflow-cli
+
+      # The build is kept so a Windows computer without Rust or MSVC can run it: download it with
+      # `gh run download -n lin-flow-next-windows` (as kkwinedf, the repo's owner), and put
+      # whisper.cpp's DLLs (windows/native/Release) in a `native` folder beside it, where the engine
+      # looks. It lasts 30 days; after a quiet month, run this workflow by hand on main for a new one.
+      - name: Keep the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: lin-flow-next-windows
+          path: |
+            next/target/release/lin-flow-next.exe
+            next/target/release/linflow.exe
+          if-no-files-found: error
+          retention-days: 30

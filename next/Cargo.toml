@@ -1,0 +1,19 @@
+# Lin Flow Next: one codebase for the Mac and Windows, beside the Swift and C# apps until John
+# says cut over (REBUILD-PROMPT.md). A Rust core, OS shells in Rust, a TypeScript window, and
+# Tauri joining them. `rebuild/` holds the inventory, stack, architecture and verification notes.
+[workspace]
+resolver = "2"
+members = ["core", "engine", "platform", "service", "cli", "app/src-tauri"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "UNLICENSED"
+
+[profile.release]
+debug = 1
+
+# Dependencies are built optimized in debug builds too. Unoptimized, compiling a regex or
+# resampling audio is slow enough to show: the laws in core/tests build a cleaner per case.
+[profile.dev.package."*"]
+opt-level = 2

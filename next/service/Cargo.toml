@@ -1,0 +1,15 @@
+[package]
+name = "linflow-service"
+description = "Lin Flow's running app minus its windows: dictation, the readback, the meeting recorder, meeting detection and sync, wired to the platform layer and reporting events for any UI."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+linflow-core = { path = "../core" }
+linflow-engine = { path = "../engine" }
+linflow-platform = { path = "../platform" }
+log = { version = "0.4", features = ["std"] }
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

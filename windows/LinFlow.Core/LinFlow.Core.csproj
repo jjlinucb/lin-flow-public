@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>LinFlow.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The Mac reads /usr/share/dict/words (BSD web2, 235,976 entries) for the guard that stops
+         an ordinary English word being snapped onto a name. Windows has no such file, so the same
+         list travels inside the assembly. LogicalName is pinned so it does not depend on the host
+         path separator - this builds on macOS. -->
+    <EmbeddedResource Include="Resources/words.txt" LogicalName="LinFlow.Core.Resources.words.txt" />
+  </ItemGroup>
+</Project>

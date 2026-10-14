@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>LinFlow.Cli</RootNamespace>
+    <AssemblyName>linflow-cli</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LinFlow.Core\LinFlow.Core.csproj" />
+    <ProjectReference Include="..\LinFlow.Engine\LinFlow.Engine.csproj" />
+  </ItemGroup>
+</Project>

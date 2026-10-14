@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>LinFlow.App</RootNamespace>
+    <AssemblyName>LinFlow</AssemblyName>
+    <!-- WinForms, not WPF: a tray app needs no XAML, and dropping WPF removes the largest
+         untestable surface from a port that was written entirely on a Mac. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- The same mark as the Mac app, from assets/AppIcon-1024.png. ApplicationIcon puts it on
+         the exe for Explorer and the taskbar; the resource below is what the window and the tray
+         load at run time. -->
+    <ApplicationIcon>lin-flow.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="lin-flow.ico" LogicalName="LinFlow.App.lin-flow.ico" />
+    <ProjectReference Include="../LinFlow.Core/LinFlow.Core.csproj" />
+    <ProjectReference Include="../LinFlow.Engine/LinFlow.Engine.csproj" />
+  </ItemGroup>
+</Project>

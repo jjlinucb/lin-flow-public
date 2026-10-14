@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Not in LinFlow.sln on purpose: nothing ships it, and `dotnet test` never runs it. It checks
+       the Release build, so build the solution first. Program.cs says how to run it and why. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LinFlowBin Condition="'$(LinFlowBin)' == ''">$(MSBuildThisFileDirectory)..\..\..\LinFlow.App\bin\Release\net8.0-windows</LinFlowBin>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="LinFlow"><HintPath>$(LinFlowBin)\LinFlow.dll</HintPath></Reference>
+    <Reference Include="LinFlow.Core"><HintPath>$(LinFlowBin)\LinFlow.Core.dll</HintPath></Reference>
+    <Reference Include="LinFlow.Engine"><HintPath>$(LinFlowBin)\LinFlow.Engine.dll</HintPath></Reference>
+    <Reference Include="NAudio.Core"><HintPath>$(LinFlowBin)\NAudio.Core.dll</HintPath></Reference>
+    <Reference Include="NAudio.Wasapi"><HintPath>$(LinFlowBin)\NAudio.Wasapi.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

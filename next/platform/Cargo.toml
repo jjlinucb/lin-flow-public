@@ -1,0 +1,43 @@
+[package]
+name = "linflow-platform"
+description = "What Lin Flow needs from each operating system: the talk key, the microphone, system audio, paste, reading the focused field, and which apps hold the microphone."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+linflow-core = { path = "../core" }
+log = "0.4"
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+cpal = "0.15"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSData", "NSUUID"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard", "NSPasteboardItem", "NSRunningApplication", "NSWorkspace", "NSSound"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Threading",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Com",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_UI_Accessibility",
+    "Win32_System_Variant",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_Media_Audio",
+    "Win32_Storage_FileSystem",
+] }

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Lin Flow</string>
+	<key>CFBundleExecutable</key>
+	<string>LinFlow</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.johnlin.linflow</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Lin Flow</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>2.0</string>
+	<key>CFBundleVersion</key>
+	<string>2.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>LSUIElement</key>
+	<false/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Lin Flow records the other side of a meeting (what your Mac is playing) to transcribe it for your notes. Audio never leaves the machine.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>John Lin</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lin Flow listens while you hold the dictation key and transcribes on this Mac. Audio never leaves the machine.</string>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>

@@ -1,0 +1,76 @@
+# Build and run the unit checks on GitHub's macOS runners, so a change can be verified
+# with the laptop shut. This is CI, not an agent: it proves the code compiles and the
+# selftest passes. It cannot exercise the readback, the hotkey or the engine -- those need
+# Accessibility, a real keyboard and a 600MB model, none of which a runner has.
+#
+# The second job does the same for the Windows app on Linux.
+name: selftest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # so it can be started from the GitHub app on a phone
+
+jobs:
+  selftest:
+    # Apple silicon, because Package.swift links against /opt/homebrew; the Intel runners
+    # put Homebrew in /usr/local and the link step would fail. macOS 26 because that is the
+    # package's minimum: Homebrew's whisper.cpp libraries are built for it.
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The package links libwhisper and libggml from Homebrew rather than building
+      # whisper.cpp from source; see the comment at the top of Package.swift.
+      - name: Install whisper.cpp
+        run: brew install whisper-cpp
+
+      # No SDK pin and no --build-system flag here: those exist for a machine that
+      # has the Command Line Tools without Xcode.app. The runners ship full Xcode.
+      - name: Build
+        run: swift build -c release
+
+      - name: Selftest
+        run: ./.build/release/LinFlow selftest
+
+      # Renders every kind of toast offscreen into one PNG, so a change to its type or
+      # layout can be looked at from a phone without anyone being at the Mac.
+      - name: Render the toast
+        run: ./.build/release/LinFlow toast-shot toast.png
+
+      # The bundle as build_app.sh makes it, signed ad hoc since a runner has no "Lin Flow"
+      # identity. --selftest runs the selftest against the packaged binary, and the commit
+      # stamp checked here is how an installed app says which commit it was built from.
+      - name: Package the app
+        run: |
+          scripts/build_app.sh --adhoc --selftest
+          stamp=$(/usr/libexec/PlistBuddy -c 'Print :LinFlowCommit' "dist/Lin Flow.app/Contents/Info.plist")
+          echo "LinFlowCommit $stamp"
+          test "$stamp" = "$(git rev-parse HEAD)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toast
+          path: toast.png
+
+  # The Windows app's tests and build, on Linux: .NET builds the Windows projects anywhere with
+  # EnableWindowsTargeting (windows/Directory.Build.props), and only running them needs Windows.
+  windows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Windows tests
+        run: dotnet test windows/LinFlow.Tests -c Release
+
+      - name: Windows build
+        run: dotnet build windows/LinFlow.sln -c Release
