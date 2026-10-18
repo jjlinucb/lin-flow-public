@@ -17,7 +17,7 @@ func usage(_ code: Int32 = 2) -> Never {
     usage:
       LinFlow                                  run the menu bar app (or show it, if it is already running)
       LinFlow transcribe <audio> [options]     transcribe a file and print the text
-      LinFlow bench <audio> [options]          run every installed model on a file
+      LinFlow bench <audio> [options]          run every installed model on a file (--model <id|file>, --threads, --runs)
       LinFlow models                           list installed + downloadable models
       LinFlow download <model-id>              fetch a model into Application Support
       LinFlow clean "<text>"                   run only the cleanup pass on some text
@@ -43,6 +43,7 @@ func usage(_ code: Int32 = 2) -> Never {
       LinFlow focus-test                       whether the focused app's text field can be read back
       LinFlow mic-test                         record one second from the default input and say what came back
       LinFlow compare-engines [--count <n>]    run your saved takes through Parakeet and Whisper turbo and write a page to label them
+      LinFlow whisper-ab --model-b <file> [--count <n>] [--out <dir>]   today's Whisper against one change, on your saved takes
 
     options:
       --model <id|path>   which ggml model (default: \(ModelCatalog.defaultModelID))
@@ -73,7 +74,7 @@ struct CLIArgs {
             let a = argv[i]
             if a.hasPrefix("--") {
                 let key = String(a.dropFirst(2))
-                let takesValue = ["model", "lang", "beam", "prompt", "window", "count", "from", "to"].contains(key)
+                let takesValue = ["model", "lang", "beam", "prompt", "window", "count", "from", "to", "threads", "runs", "model-b", "out"].contains(key)
                 if takesValue {
                     guard i + 1 < argv.count, !argv[i + 1].hasPrefix("--") else {
                         fputs("--\(key) needs a value\n\n", stderr); usage()
@@ -147,22 +148,34 @@ func cmdBench(_ args: CLIArgs) {
     guard args.positional.count >= 2 else { usage() }
     let url = URL(fileURLWithPath: args.positional[1])
     guard let samples = try? AudioIO.loadSamples(from: url) else { fputs("could not read \(url.path)\n", stderr); exit(1) }
-    let opts = makeOptions(args)
-    print(String(format: "audio: %.1fs   beam=%d  vad=%@  fallback=%@", Double(samples.count) / AudioIO.sampleRate,
-                 opts.beamSize, opts.vadModelPath == nil ? "off" : "on", opts.temperatureFallback ? "on" : "off"))
-    for modelURL in ModelCatalog.installedModelURLs() {
+    var opts = makeOptions(args)
+    if let t = args.flags["threads"], let n = Int32(t), n > 0 { opts.threads = n }
+    let runs = max(1, Int(args.flags["runs"] ?? "") ?? 3)
+    print(String(format: "audio: %.1fs   beam=%d  vad=%@  fallback=%@  threads=%d", Double(samples.count) / AudioIO.sampleRate,
+                 opts.beamSize, opts.vadModelPath == nil ? "off" : "on", opts.temperatureFallback ? "on" : "off", opts.threads))
+    // --model narrows the run to one installed model id, or names a model file anywhere.
+    var modelURLs = ModelCatalog.installedModelURLs()
+    if let m = args.flags["model"] {
+        guard let u = FileManager.default.fileExists(atPath: m) ? URL(fileURLWithPath: m) : ModelCatalog.locate(m) else {
+            fputs("model '\(m)' not found\n", stderr); exit(1)
+        }
+        modelURLs = [u]
+    }
+    for modelURL in modelURLs {
         guard let engine = try? EngineFactory.load(modelURL: modelURL) else { print("  \(modelURL.lastPathComponent): load failed"); continue }
         // Warm-up run first: Metal shader/pipeline setup lands on the first call.
         _ = try? engine.transcribe(samples, options: opts)
         var times: [Double] = []
         var text = ""
-        for _ in 0..<3 {
+        for _ in 0..<runs {
             guard let r = try? engine.transcribe(samples, options: opts) else { continue }
             times.append(r.inferenceSeconds); text = r.text
         }
         let avg = times.isEmpty ? 0 : times.reduce(0, +) / Double(times.count)
-        print(String(format: "  %-32@ load %.2fs  infer %.2fs  -> %@", ModelCatalog.idFromURL(modelURL) as NSString, engine.loadSeconds, avg, text as NSString))
+        print(String(format: "  %-32@ load %.2fs  infer %.2fs (min %.2fs)  -> %@", ModelCatalog.idFromURL(modelURL) as NSString, engine.loadSeconds, avg, times.min() ?? 0, text as NSString))
     }
+    // _exit: models were loaded, and a normal exit() trips ggml's Metal teardown assertion.
+    fflush(stdout); Log.flush(); _exit(0)
 }
 
 func cmdModels() {
@@ -787,6 +800,16 @@ case "learn-test": cmdLearnTest(args)
 case "focus-test": cmdFocusTest()
 case "mic-test": cmdMicTest()
 case "compare-engines": EngineComparison.run(count: Int(args.flags["count"] ?? "") ?? 50, longest: 20)
+case "whisper-ab":
+    guard let modelB = args.flags["model-b"] else { usage() }
+    // One folder per run, named for B, so a second comparison the same day keeps the first one's rows.
+    let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate, .withTime])
+        .replacingOccurrences(of: ":", with: "")
+    let bName = URL(fileURLWithPath: modelB).deletingPathExtension().lastPathComponent
+    WhisperAB.run(count: Int(args.flags["count"] ?? "") ?? 50,
+                  modelB: URL(fileURLWithPath: modelB),
+                  out: args.flags["out"].map { URL(fileURLWithPath: $0) }
+                      ?? ModelCatalog.appSupportDir.appendingPathComponent("benchmarks/whisper-ab-\(stamp)-\(bName)", isDirectory: true))
 case "transform": cmdTransform(args)
 case "transforms": cmdTransforms()
 default: usage()
