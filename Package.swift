@@ -12,10 +12,18 @@
 // ships libwhisper + libggml prebuilt with the Metal backend. We link against
 // the version-stable /opt/homebrew/opt/... symlinks so `brew upgrade` doesn't
 // break the binary as long as the library major versions stay put.
+//
+// Homebrew renamed the formula to `whisper.cpp` at 1.9.5 (October 2026). A fresh install
+// has only /opt/homebrew/opt/whisper.cpp, while a Mac that upgraded from whisper-cpp may
+// still have only the old name. The manifest links whichever exists, the new name first.
+// CI went red on 10-14 on runner images that installed the new name.
+import Foundation
 import PackageDescription
 
 let brew = "/opt/homebrew"
-let brewLibDirs = ["\(brew)/opt/whisper-cpp/lib", "\(brew)/opt/ggml/lib"]
+let whisperLib = ["\(brew)/opt/whisper.cpp/lib", "\(brew)/opt/whisper-cpp/lib"]
+    .first { FileManager.default.fileExists(atPath: $0) } ?? "\(brew)/opt/whisper.cpp/lib"
+let brewLibDirs = [whisperLib, "\(brew)/opt/ggml/lib"]
 
 let package = Package(
     name: "LinFlow",

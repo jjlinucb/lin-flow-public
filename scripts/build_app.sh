@@ -52,7 +52,8 @@ if [ "$REQUIRE_IDENTITY" = 1 ]; then
     fi
 fi
 
-if [ ! -f /opt/homebrew/opt/whisper-cpp/lib/libwhisper.dylib ]; then
+# Homebrew renamed the formula to whisper.cpp at 1.9.5; an older install keeps whisper-cpp.
+if [ ! -f /opt/homebrew/opt/whisper.cpp/lib/libwhisper.dylib ] && [ ! -f /opt/homebrew/opt/whisper-cpp/lib/libwhisper.dylib ]; then
     echo "whisper.cpp not found. Run: brew install whisper-cpp" >&2
     exit 1
 fi
