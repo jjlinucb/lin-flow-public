@@ -461,6 +461,13 @@ struct NoteDetailView: View {
                             Text("live").font(.caption).foregroundStyle(.secondary)
                                 .help("What was transcribed during the meeting. Transcribe Again from the Recording (in the menu) rebuilds it from the audio.")
                         }
+                        Spacer()
+                        if !model.segments.isEmpty {
+                            CopyTextButton(help: "Copy the whole transcript, with times and speakers") {
+                                NotesStore.transcriptText(model.segments)
+                            }
+                            .controlSize(.small)
+                        }
                     }
                     if model.segments.isEmpty {
                         ContentUnavailableView(isThisRecording ? "Listening…" : "No transcript yet", systemImage: "waveform",
@@ -516,6 +523,10 @@ struct NoteDetailView: View {
                             Text("Taking notes…").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
+                        CopyTextButton(help: showsRunningNotes ? "Copy the running notes" : "Copy the summary") {
+                            showsRunningNotes ? model.runningNotes : model.summary
+                        }
+                        .disabled((showsRunningNotes ? model.runningNotes : model.summary).isEmpty)
                         Button("Recap 5 min") { model.recap() }
                             .disabled(model.segments.isEmpty || model.summarizing)
                             .help("What did I miss? A few bullets on the last five minutes.")
@@ -569,23 +580,11 @@ struct AskPanel: View {
     @ObservedObject var model: DashboardModel
     let hasTranscript: Bool
     @State private var draft = ""
-    @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text("Ask Claude").font(.headline)
-                // The answer's lines are separate Text views, so a drag can't select it whole.
-                Button {
-                    guard let answer = model.questions.last?.answer else { return }
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(answer, forType: .string)
-                    copied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
-                } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
-                    .buttonStyle(.borderless)
-                    .disabled(model.questions.isEmpty)
-                    .help("Copy the latest answer")
                 if model.asking {
                     ProgressView().controlSize(.small)
                     Text("Thinking…").font(.caption).foregroundStyle(.secondary)
@@ -598,10 +597,14 @@ struct AskPanel: View {
                 HStack(spacing: 6) {
                     ForEach(MeetingQuestions.quick, id: \.label) { q in
                         Button(q.label) { model.ask(q.question) }
+                            .disabled(model.asking || !hasTranscript)
                     }
+                    CopyTextButton(help: "Copy the latest answer. Right-click an answer to copy that one.") {
+                        model.questions.last?.answer ?? ""
+                    }
+                    .disabled(model.questions.isEmpty)
                 }
                 .controlSize(.small)
-                .disabled(model.asking || !hasTranscript)
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 10) {
@@ -611,6 +614,7 @@ struct AskPanel: View {
                                     SummaryMarkdown(text: turn.answer)
                                 }
                                 .id(i)
+                                .contextMenu { Button("Copy") { CopyTextButton.copy(turn.answer) } }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -631,6 +635,28 @@ struct AskPanel: View {
                     }
             }
         }
+    }
+}
+
+/// "Copy text", then "Copied" for a moment. A pane drawn as one Text view per line can't be
+/// drag-selected whole, so each one carries this. The text is built only on a click.
+struct CopyTextButton: View {
+    var help = "Copy all of it"
+    let text: () -> String
+    @State private var copied = false
+
+    var body: some View {
+        Button(copied ? "Copied" : "Copy text") {
+            Self.copy(text())
+            copied = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+        }
+        .help(help)
+    }
+
+    static func copy(_ s: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(s, forType: .string)
     }
 }
 
