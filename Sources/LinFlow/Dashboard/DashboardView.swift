@@ -569,11 +569,23 @@ struct AskPanel: View {
     @ObservedObject var model: DashboardModel
     let hasTranscript: Bool
     @State private var draft = ""
+    @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text("Ask Claude").font(.headline)
+                // The answer's lines are separate Text views, so a drag can't select it whole.
+                Button {
+                    guard let answer = model.questions.last?.answer else { return }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(answer, forType: .string)
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
+                    .buttonStyle(.borderless)
+                    .disabled(model.questions.isEmpty)
+                    .help("Copy the latest answer")
                 if model.asking {
                     ProgressView().controlSize(.small)
                     Text("Thinking…").font(.caption).foregroundStyle(.secondary)
