@@ -137,7 +137,10 @@ the talk key and the fleet change in the same cut-over.
 **The fleet.** Until cut-over it builds only the Swift and C# apps, and Next stays off every
 computer's schedule. `fleet.sh` and its `FLEET.md` are still in the archived private repo, and
 the Mac's daily job (`com.johnlin.linflow-fleet`) runs them from its own clone of that repo, so a
-fleet change starts by bringing both here. Proposed for cut-over, per computer:
+fleet change starts by bringing both here. Its log there also shows Supabase mostly not answering
+since 10-12 ("Could not read the table"), so `devices` has to answer again before the fleet can
+say what any computer runs. Both are cut-over work, left alone until then (decided 10-23).
+Proposed for cut-over, per computer:
 
 1. Give the computer's row in `devices` the app it runs, `swift`, `csharp` or `next`, so
    `status` and `behind_count` compare against the right paths: `next/` for Next.
