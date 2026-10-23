@@ -13,8 +13,9 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 /// The model for running notes: the local one, since they run every minute and Claude costs
-/// money per call; Claude when there is no local model, so the Mac has running notes at all
-/// until an on-device model is wired in. None, with the reason, when neither is there.
+/// money per call; Claude when there is no local model. Apple Intelligence is out (John,
+/// 2026-10-23), so on the Mac the local model is Ollama too. None, with the reason, when
+/// neither is there.
 pub fn running_notes_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
     let s = ctx.settings();
     let ollama = Ollama::new(&s.ollama_host, &s.ollama_model, ctx.net.clone());

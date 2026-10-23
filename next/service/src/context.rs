@@ -26,11 +26,15 @@ pub struct Context {
 
 /// The talk key when none is set. Beside the installed Lin Flow, which answers to Fn on the Mac
 /// and Left Ctrl + Left Alt on Windows, Lin Flow Next must answer to something else or both
-/// would dictate at once: Right Option on the Mac, Right Alt on Windows. From cutover, when this
-/// app takes over the "Lin Flow" folder, the defaults are the installed app's again.
+/// would dictate at once: Right Option on the Mac, Right Alt on Windows (John, 2026-10-23: until
+/// cut-over). From cutover, when this app takes over the "Lin Flow" folder, the defaults are the
+/// installed app's again.
 pub fn default_hotkey() -> Hotkey {
-    let p = Platform::current();
-    if linflow_core::paths::APP_FOLDER == "Lin Flow Next" {
+    default_hotkey_for(Platform::current(), linflow_core::paths::APP_FOLDER)
+}
+
+fn default_hotkey_for(p: Platform, app_folder: &str) -> Hotkey {
+    if app_folder == "Lin Flow Next" {
         return Hotkey::parse("rightOption", p).unwrap_or_else(|| Hotkey::default_for(p));
     }
     Hotkey::default_for(p)
@@ -87,5 +91,34 @@ impl Context {
         if self.settings().sounds {
             linflow_platform::play_sound(sound);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn beside_the_installed_app_the_talk_key_is_right_option() {
+        for p in [Platform::Mac, Platform::Windows] {
+            let key = default_hotkey_for(p, "Lin Flow Next");
+            assert_eq!(key.raw_value(p), "rightOption", "{p:?}");
+            assert_ne!(key, Hotkey::default_for(p), "{p:?}: the installed app's key would dictate twice");
+        }
+        assert_eq!(default_hotkey_for(Platform::Mac, "Lin Flow Next").label(Platform::Mac), "Right Option");
+        assert_eq!(default_hotkey_for(Platform::Windows, "Lin Flow Next").label(Platform::Windows), "Right Alt");
+    }
+
+    #[test]
+    fn from_cutover_the_talk_key_is_the_installed_apps() {
+        for p in [Platform::Mac, Platform::Windows] {
+            assert_eq!(default_hotkey_for(p, "Lin Flow"), Hotkey::default_for(p), "{p:?}");
+        }
+    }
+
+    #[test]
+    fn this_build_runs_beside_the_installed_app() {
+        assert_eq!(default_hotkey_for(Platform::current(), linflow_core::paths::APP_FOLDER), default_hotkey());
+        assert_eq!(linflow_core::paths::APP_FOLDER, "Lin Flow Next", "cut-over changes this, the talk key and the fleet together");
     }
 }

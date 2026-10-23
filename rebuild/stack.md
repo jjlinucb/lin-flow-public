@@ -58,14 +58,15 @@ per system are small Rust modules behind one interface.
 
 | | Mac | Windows |
 |---|---|---|
-| Apple Intelligence | Not reachable from Rust: its API is Swift only. A small Swift helper could bring it back | Not on Windows |
+| Apple Intelligence | Out (John, 2026-10-23). Its API is Swift only. A small Swift helper could bring it back | Not on Windows |
 | Claude | HTTPS to the API with John's key. Summaries, recaps and Ask Claude | The same |
 | Ollama | HTTP to `127.0.0.1:11434`. Running notes, and summaries when no key is saved | The same |
 
 ### Keeping the computers updated
 
-`fleet.sh` builds each computer's app from `main`. For Next it becomes `npm run build` and
-`cargo tauri build` on each computer, then the same install steps. Tauri's own updater is not used:
+`fleet.sh` builds each computer's app from `main`. For Next, from cut-over (John, 2026-10-23), it
+becomes `npm run build` and `cargo tauri build` on each computer, then the same install steps.
+`architecture.md` has the steps. Tauri's own updater is not used:
 it ships one build to every computer, and John wants each computer to build its own.
 
 ### The shared dictionary and totals
