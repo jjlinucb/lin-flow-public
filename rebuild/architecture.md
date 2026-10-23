@@ -123,3 +123,30 @@ opens in any of the three. Until cut-over Next keeps its own:
 John says when, one computer at a time, Mac last. On each: install Next, point it at the real
 data folder and talk key, check the live list in `verification.md` with John there, then remove
 the old app. `fleet.sh` learns to build Next on that computer at the same time.
+
+**Decided by John, 2026-10-23:** Snippets, Style and Transforms stay out, no Apple Intelligence,
+no Recent Dictations menu, Right Option and Right Alt until cut-over, and the fleet builds Next
+from cut-over.
+
+**The talk key.** `APP_FOLDER` in `core/src/paths.rs` decides it: while it is `Lin Flow Next`,
+`context::default_hotkey` gives Right Option (Right Alt on Windows), and from `Lin Flow` it
+gives the installed app's key, Fn or Left Ctrl + Left Alt. A key John chose in Settings stays
+his either way. `context.rs` has a test that fails when the folder changes, as a reminder that
+the talk key and the fleet change in the same cut-over.
+
+**The fleet.** Until cut-over it builds only the Swift and C# apps, and Next stays off every
+computer's schedule. `fleet.sh` and its `FLEET.md` are still in the archived private repo, and
+the Mac's daily job (`com.johnlin.linflow-fleet`) runs them from its own clone of that repo, so a
+fleet change starts by bringing both here. Its log there also shows Supabase mostly not answering
+since 10-12 ("Could not read the table"), so `devices` has to answer again before the fleet can
+say what any computer runs. Both are cut-over work, left alone until then (decided 10-23).
+Proposed for cut-over, per computer:
+
+1. Give the computer's row in `devices` the app it runs, `swift`, `csharp` or `next`, so
+   `status` and `behind_count` compare against the right paths: `next/` for Next.
+2. For `next`, the build is `npm --prefix next/app ci`, then `cargo tauri build` in
+   `next/app`, after `cargo test --workspace` and `npm --prefix next/app test` pass. Its commit
+   goes into the version the same way, so `installed_commit` reads it.
+3. Install in place of the old app, with the same idle and recording checks. Never while a note
+   records.
+4. Mac last.

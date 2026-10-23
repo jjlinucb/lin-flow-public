@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
+/// The Swift app has a third level, Medium, an Apple Intelligence rewrite. Next leaves it out
+/// with Style, Snippets and Transforms (John, 2026-10-23), so a "medium" read from the Mac comes
+/// in as Light, the default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum CleanupLevel {
@@ -163,6 +166,21 @@ mod tests {
         let back: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(back["futureThing"]["a"], 1);
         assert_eq!(back["useVAD"], true);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_macs_medium_cleanup_and_snippets_come_in_without_them() {
+        let dir = crate::history::tests::tempdir();
+        let path = dir.join("settings.json");
+        std::fs::write(&path, r#"{"cleanupLevel":"medium","sounds":false,"appTransforms":[{"name":"Formal"}]}"#).unwrap();
+        let s = SettingsFile::load(&path);
+        assert_eq!(s.values.cleanup_level, CleanupLevel::Light, "Medium was Apple Intelligence, which is out");
+        assert!(!s.values.sounds, "the rest of the file still reads");
+        s.save().unwrap();
+        let back: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(back["cleanupLevel"], "light");
+        assert_eq!(back["appTransforms"][0]["name"], "Formal", "kept for a later port, never acted on");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -1,8 +1,8 @@
 # Inventory: everything Lin Flow does today
 
-**Updated:** 2026-10-02. **Status:** draft for John's review. Written after the build started,
-since John said to keep building. Every decision made without him is marked **Decide** below,
-with the choice taken.
+**Updated:** 2026-10-23. **Status:** reviewed. Written after the build started, since John said
+to keep building. Every decision made without him was marked **Decide**, with the choice taken.
+John approved all five on 2026-10-23 ("sure let's build all these"); each now says **Decided**.
 
 This is the acceptance checklist for the rebuild. Each row is one thing the installed apps do.
 **Where** says which app does it today: Mac for the Swift app, Win for the C# app, or Both. **Next** says where Lin
@@ -47,7 +47,7 @@ Sources: `README.md`, `HISTORY.md`, `FLEET.md`, `SYNC-PLAN.md`, `windows/PLAN.md
 | Fn as the talk key, with Fn's own events swallowed so the Globe action never fires | Mac | Built |
 | A held mouse button talks without clicking, and a quick click still clicks | Both | Built |
 | Shift, Control, Option and Command never swallowed | Both | Built |
-| Default: Fn on the Mac, Right Alt on Windows | Both | Built. Next defaults to Right Option and Right Alt while it runs beside the installed app. **Decide** at cut-over |
+| Default: Fn on the Mac, Left Ctrl + Left Alt on Windows | Both | Done. Next defaults to Right Option and Right Alt while it runs beside the installed app, and to the installed app's key from cut-over. **Decided** 10-23 |
 
 ## The text pipeline
 
@@ -69,9 +69,9 @@ Sources: `README.md`, `HISTORY.md`, `FLEET.md`, `SYNC-PLAN.md`, `windows/PLAN.md
 | A lowercase dictionary term stays lowercase at a sentence start | Mac | Done on both. **Answered** 10-02: the Mac's way |
 | Hand-edited lines in `replacements.txt` kept on save | Mac | Done on both |
 | Cleanup level None or Light | Both | Done |
-| Cleanup level Medium: an Apple Intelligence rewrite | Mac | Out. **Decide**: Style was not chosen at the interview |
-| Snippets: a spoken phrase expands into saved text | Mac | Out. John's `snippets.json` is empty |
-| Transforms and per-app rules: rewrites by an on-device model | Mac | Out. No transforms or app rules are set on the Mac |
+| Cleanup level Medium: an Apple Intelligence rewrite | Mac | Out. **Decided** 10-23. A Mac `medium` reads as Light |
+| Snippets: a spoken phrase expands into saved text | Mac | Out. **Decided** 10-23. John's `snippets.json` is empty |
+| Transforms and per-app rules: rewrites by an on-device model | Mac | Out. **Decided** 10-23. No transforms or app rules are set on the Mac |
 
 The oracle compares Next with the Swift app on 97,003 generated inputs and agrees on all of them.
 John's 1,219 real dictations are a further check that runs in place and is never committed.
@@ -98,7 +98,7 @@ John's 1,219 real dictations are a further check that runs in place and is never
 | Dictionary: words, corrections, learned labels, suggestions to accept or dismiss | Both | Done |
 | Notetaker section | Both | Done |
 | Settings | Both | Done |
-| Snippets, Style and Transforms sections | Mac | Out |
+| Snippets, Style and Transforms sections | Mac | Out. **Decided** 10-23 |
 | Closing the window hides it, the app keeps running | Both | Built |
 | The window opens at launch, unless turned off | Both | Built |
 | The Mac look on Windows | Win | Done: one window for both |
@@ -112,7 +112,7 @@ John's 1,219 real dictations are a further check that runs in place and is never
 | Hold-to-talk button on the pill | Both | Built |
 | The pill and toasts never take focus | Both | Built |
 | Menu bar or tray icon, red while recording | Both | Built |
-| Recent Dictations in the menu: click one to copy it | Mac | Gap. **Decide**: the window's copy button may be enough |
+| Recent Dictations in the menu: click one to copy it | Mac | Out. **Decided** 10-23: the window's copy button is enough |
 | Show in Dock, off for menu bar only | Mac | Built |
 | Launch at login | Both | Built |
 | One copy running at a time | Both | Built |
@@ -164,7 +164,7 @@ John's 1,219 real dictations are a further check that runs in place and is never
 
 | Feature | Where | Next |
 |---|---|---|
-| Summaries and running notes by Apple Intelligence on the Mac | Mac | Out. **Decide**: Claude first for summaries, a local model first for running notes |
+| Summaries and running notes by Apple Intelligence on the Mac | Mac | Out. **Decided** 10-23: Claude first for summaries, Ollama first for running notes |
 | Ollama `qwen2.5:3b` on Windows | Win | Done on both |
 | Claude with John's key, `scripts/setup-claude.sh` | Mac | Built on both |
 
@@ -176,7 +176,7 @@ John's 1,219 real dictations are a further check that runs in place and is never
 | One dictionary on all three computers, deletions included | Both | Done, oracle-checked, now a law |
 | Sync every 10 minutes and after a dictation | Both | Built |
 | A mass deletion refused as an accident | Both | Done |
-| `fleet.sh`: each computer builds its own app from `main` | Both | Gap. **Decide**: Next joins the fleet at cut-over |
+| `fleet.sh`: each computer builds its own app from `main` | Both | Gap. **Decided** 10-23: Next joins the fleet at cut-over, steps in `architecture.md` |
 
 ## Command line
 
@@ -200,7 +200,7 @@ John's 1,219 real dictations are a further check that runs in place and is never
 |---|---|---|---|
 | Lowercase term at a sentence start | stays lowercase | capitalized | the Mac's way, John 10-02 |
 | Hand-edited lines in `replacements.txt` | kept | dropped on save | kept |
-| Talk key default | Fn | Right Alt | Fn and Right Alt at cut-over |
+| Talk key default | Fn | Left Ctrl + Left Alt | Right Option and Right Alt until cut-over, then the installed app's |
 | Summaries | Apple Intelligence, Claude | Ollama | Claude, then Ollama |
 | Running notes | Apple Intelligence | Ollama | Ollama, then Claude |
 | Whisper | yes | no | both |
@@ -209,6 +209,9 @@ John's 1,219 real dictations are a further check that runs in place and is never
 | Data folder | `~/Library/Application Support/Lin Flow` | `%APPDATA%\Lin Flow` | the same names, `Lin Flow Next` until cut-over |
 
 ## Decisions for John
+
+All five approved by John on 2026-10-23, as proposed.
+
 
 1. **Snippets, Style and Transforms are out.** None is in use: `snippets.json` is empty and the
    Mac's settings hold no transform or app rule, as checked on 2026-10-02. A later port starts from the
