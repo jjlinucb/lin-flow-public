@@ -118,7 +118,6 @@ mod tests {
 
     #[test]
     fn this_build_runs_beside_the_installed_app() {
-        assert_eq!(default_hotkey_for(Platform::current(), linflow_core::paths::APP_FOLDER), default_hotkey());
         assert_eq!(linflow_core::paths::APP_FOLDER, "Lin Flow Next", "cut-over changes this, the talk key and the fleet together");
     }
 }

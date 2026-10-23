@@ -173,14 +173,14 @@ mod tests {
     fn the_macs_medium_cleanup_and_snippets_come_in_without_them() {
         let dir = crate::history::tests::tempdir();
         let path = dir.join("settings.json");
-        std::fs::write(&path, r#"{"cleanupLevel":"medium","sounds":false,"snippetsEnabled":true,"transforms":[{"name":"Formal"}]}"#).unwrap();
+        std::fs::write(&path, r#"{"cleanupLevel":"medium","sounds":false,"appTransforms":[{"name":"Formal"}]}"#).unwrap();
         let s = SettingsFile::load(&path);
         assert_eq!(s.values.cleanup_level, CleanupLevel::Light, "Medium was Apple Intelligence, which is out");
         assert!(!s.values.sounds, "the rest of the file still reads");
         s.save().unwrap();
         let back: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(back["cleanupLevel"], "light");
-        assert_eq!(back["transforms"][0]["name"], "Formal", "kept for a later port, never acted on");
+        assert_eq!(back["appTransforms"][0]["name"], "Formal", "kept for a later port, never acted on");
         let _ = std::fs::remove_dir_all(dir);
     }
 }
