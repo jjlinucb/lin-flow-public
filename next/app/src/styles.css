@@ -636,6 +636,7 @@ textarea {
   border: none;
   border-radius: 0;
   padding: 3px 10px;
+  background: var(--bg);
 }
 
 .tabs button.on {

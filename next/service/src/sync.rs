@@ -1,6 +1,8 @@
 //! The shared dictionary and the shared word totals, on one worker thread: every ten minutes,
 //! and the totals after each dictation. Nothing happens until `sync.env` is in the data folder,
-//! and Lin Flow Next's folder is its own, so it never syncs as the installed app's computer.
+//! and Lin Flow Next's folder is its own, so it never syncs as the installed app's computer. A
+//! cut-over build (`paths::APP_FOLDER` is "Lin Flow", the Mac from 2026-10-23) opens the
+//! installed app's folder and syncs as that computer, in its place.
 
 use crate::context::Context;
 use crate::events::Event;

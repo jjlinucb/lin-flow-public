@@ -33,14 +33,12 @@ $stage = Join-Path $env:TEMP "lin-flow-next-$PID"
 New-Item -ItemType Directory -Force (Join-Path $stage 'native') | Out-Null
 
 if ($Source) {
-    Push-Location (Join-Path $root 'next\app')
-    npm ci; if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
-    npm run build; if ($LASTEXITCODE -ne 0) { throw 'The window did not build.' }
-    Pop-Location
-    Push-Location (Join-Path $root 'next')
-    cargo build --release -p lin-flow-next -p linflow-cli
+    npm --prefix (Join-Path $root 'next\app') ci
+    if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
+    npm --prefix (Join-Path $root 'next\app') run build
+    if ($LASTEXITCODE -ne 0) { throw 'The window did not build.' }
+    cargo build --release --manifest-path (Join-Path $root 'next\Cargo.toml') -p lin-flow-next -p linflow-cli
     if ($LASTEXITCODE -ne 0) { throw 'cargo build failed. Are the MSVC Build Tools installed?' }
-    Pop-Location
     Copy-Item (Join-Path $root 'next\target\release\lin-flow-next.exe'), (Join-Path $root 'next\target\release\linflow.exe') $stage
     # whisper.cpp's DLLs, the same v1.9.1 release CI puts beside its build.
     $zip = Join-Path $stage 'whisper-bin-x64.zip'
@@ -50,6 +48,7 @@ if ($Source) {
     Remove-Item -Recurse -Force $zip, (Join-Path $stage 'whisper')
 } else {
     $run = gh run list -R $Repo --workflow next --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId'
+    if ($LASTEXITCODE -ne 0) { throw 'gh could not list the runs. Is gh installed and signed in (gh auth login)?' }
     if (-not $run) { throw "No green run of the next workflow on main. Run it by hand: gh workflow run next -R $Repo --ref main" }
     gh run download $run -R $Repo -n lin-flow-next-windows -D $stage
     if ($LASTEXITCODE -ne 0) { throw "Run $run kept no Windows build. Builds last 30 days; run the workflow by hand for a new one." }

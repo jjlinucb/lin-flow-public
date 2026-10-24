@@ -1,7 +1,7 @@
 //! Where Lin Flow keeps its files.
 //!
-//! Lin Flow Next keeps its own folder until John says cut over, so it never writes beside the
-//! installed app: two apps syncing one `dictionary-sync.json` or appending to one
+//! Lin Flow Next keeps its own folder until John says cut over (a cut-over build, below, opens
+//! the installed app's once that app is quit), so it never writes beside the installed app: two apps syncing one `dictionary-sync.json` or appending to one
 //! `history.jsonl` would corrupt both. `LINFLOW_DATA_DIR` points it anywhere, which is how the
 //! oracle reads the installed app's dictionary, read-only.
 
