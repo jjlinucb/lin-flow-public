@@ -20,7 +20,7 @@ export function Settings({ view, recorded, onChange, onError }: { view: Settings
       <div class="form">
         {!view.trusted ? (
           <div class="banner warning" style={{ borderRadius: 8, marginTop: 14 }}>
-            Lin Flow Next needs Accessibility and Input Monitoring to hear the talk key and paste.
+            Lin Flow needs Accessibility and Input Monitoring to hear the talk key and paste.
             <span class="spacer" />
             <button onClick={() => call("request_access")}>Open the request</button>
           </div>
