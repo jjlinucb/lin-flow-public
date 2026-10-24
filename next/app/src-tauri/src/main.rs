@@ -321,10 +321,14 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 fn update_tray(app: &AppHandle, state: Option<(&str, &str)>) {
-    let s = svc(app);
+    // The service starts, and sends its first states, before setup manages `App`, and on the
+    // Mac those calls run at once on the main thread. `state()` would panic there, inside
+    // did_finish_launching, which cannot unwind: the app aborted 0.3 s after every launch.
+    // There is no tray yet either; `build_tray` brings it up to date.
+    let Some(app_state) = app.try_state::<App>() else { return };
+    let s = app_state.svc.clone();
     let st = s.status();
     let (label, phase) = state.map(|(l, p)| (l.to_string(), p.to_string())).unwrap_or((st.label.clone(), st.phase.clone()));
-    let app_state = app.state::<App>();
     let guard = app_state.tray.lock().unwrap();
     let Some(t) = guard.as_ref() else { return };
     let line = if phase == "idle" { format!("Hold {} to talk", st.hotkey_label) } else { label };

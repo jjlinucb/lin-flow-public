@@ -7,8 +7,14 @@
 
 use std::path::PathBuf;
 
-/// The folder's name. "Lin Flow" is the installed app's; this becomes it at cutover.
-pub const APP_FOLDER: &str = "Lin Flow Next";
+/// The folder's name. "Lin Flow" is the installed app's; this becomes it at cutover. A build
+/// made with `LINFLOW_APP_FOLDER="Lin Flow"` is a cut-over build: it opens the installed app's
+/// data and answers to its talk key, for the computer where Next has taken over (the Mac, from
+/// 2026-10-23, at John's word). Every other build, CI's among them, keeps its own folder.
+pub const APP_FOLDER: &str = match option_env!("LINFLOW_APP_FOLDER") {
+    Some(folder) => folder,
+    None => "Lin Flow Next",
+};
 
 pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("LINFLOW_DATA_DIR") {

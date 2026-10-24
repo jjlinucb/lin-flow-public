@@ -128,6 +128,14 @@ the old app. `fleet.sh` learns to build Next on that computer at the same time.
 no Recent Dictations menu, Right Option and Right Alt until cut-over, and the fleet builds Next
 from cut-over.
 
+**The Mac went first, 2026-10-23.** John asked to use Next on the Mac that evening with his own
+dictionary, history and Fn, so the Mac's build is a cut-over build: `LINFLOW_APP_FOLDER="Lin Flow"
+npx tauri build --bundles app` in `next/app`, then signed with the "Lin Flow" identity so the
+Accessibility grant survives the next build. It opens `~/Library/Application Support/Lin Flow`,
+syncs as "John Macbook" and answers to Fn. The Swift app is quit, not removed, and still starts
+at login: quit Next from its tray and open Lin Flow to go back. Windows and CI build with no
+folder set, so they stay beside the C# app. `next/scripts/windows.ps1` installs CI's build there.
+
 **The talk key.** `APP_FOLDER` in `core/src/paths.rs` decides it: while it is `Lin Flow Next`,
 `context::default_hotkey` gives Right Option (Right Alt on Windows), and from `Lin Flow` it
 gives the installed app's key, Fn or Left Ctrl + Left Alt. A key John chose in Settings stays
