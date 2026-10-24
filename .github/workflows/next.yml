@@ -128,7 +128,7 @@ jobs:
   # Tests and lint already compile every line of the app on a pull request. The optimized build
   # waits for main, where a release would come from.
   windows-app:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
     timeout-minutes: 45
     defaults:
@@ -162,16 +162,28 @@ jobs:
       - name: Build the app
         run: cargo build --release -p lin-flow-next -p linflow-cli
 
-      # The build is kept so a Windows computer without Rust or MSVC can run it: download it with
-      # `gh run download -n lin-flow-next-windows` (as kkwinedf, the repo's owner), and put
-      # whisper.cpp's DLLs (windows/native/Release) in a `native` folder beside it, where the engine
-      # looks. It lasts 30 days; after a quiet month, run this workflow by hand on main for a new one.
+      # One folder a Windows computer can run as it is, without Rust or MSVC: the app, the CLI and
+      # whisper.cpp's DLLs in `native`, where the engine looks. `next/scripts/windows.ps1` fetches
+      # it from the newest green run on main and installs it; `gh run download -n
+      # lin-flow-next-windows` gets the same zip by hand. The DLLs are the v1.9.1 release, the
+      # whisper.cpp the Mac builds against.
+      - name: Put the app together
+        shell: pwsh
+        run: |
+          $out = 'dist/windows'
+          New-Item -ItemType Directory -Force "$out/native" | Out-Null
+          Copy-Item target/release/lin-flow-next.exe, target/release/linflow.exe $out
+          $zip = Join-Path $env:RUNNER_TEMP 'whisper-bin-x64.zip'
+          Invoke-WebRequest https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip -OutFile $zip
+          Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'whisper') -Force
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'whisper/Release/*.dll') "$out/native"
+          & "$out/linflow.exe" version
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length | Format-Table -AutoSize
+
       - name: Keep the build
         uses: actions/upload-artifact@v4
         with:
           name: lin-flow-next-windows
-          path: |
-            next/target/release/lin-flow-next.exe
-            next/target/release/linflow.exe
+          path: next/dist/windows
           if-no-files-found: error
           retention-days: 30

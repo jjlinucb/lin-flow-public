@@ -1,9 +1,10 @@
 // The main window: a sidebar of four sections, kept current by the service's events.
 
-import { render } from "preact";
+import { render, type JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { call, onEvent, onNavigate, type Dictionary as Dict, type HistoryEntry, type MeetingNote, type Phase, type Segment, type ServiceEvent, type Settings as S, type SettingsView, type Stats, type StatusView } from "./api";
 import "./styles.css";
+import { NavDictation, NavDictionary, NavNotes, NavSettings } from "./icons";
 import { Dictation } from "./views/Dictation";
 import { Dictionary } from "./views/Dictionary";
 import { Notetaker, type LiveState } from "./views/Notetaker";
@@ -11,11 +12,11 @@ import { Settings } from "./views/Settings";
 
 type Section = "dictation" | "notes" | "dictionary" | "settings";
 
-const SECTIONS: [Section, string][] = [
-  ["dictation", "Dictation"],
-  ["notes", "Notetaker"],
-  ["dictionary", "Dictionary"],
-  ["settings", "Settings"],
+const SECTIONS: [Section, string, () => JSX.Element][] = [
+  ["dictation", "Dictation", NavDictation],
+  ["notes", "Notetaker", NavNotes],
+  ["dictionary", "Dictionary", NavDictionary],
+  ["settings", "Settings", NavSettings],
 ];
 
 function App() {
@@ -144,10 +145,13 @@ function App() {
       <nav class="sidebar">
         <div class="brand">
           Lin Flow
-          <small>Next</small>
+          <small>{SECTIONS.find(([id]) => id === section)?.[1]}</small>
         </div>
-        {SECTIONS.map(([id, label]) => (
+        {SECTIONS.map(([id, label, Icon]) => (
           <div key={id} class={`nav ${section === id ? "active" : ""}`} onClick={() => setSection(id)}>
+            <span class="nav-icon">
+              <Icon />
+            </span>
             {label}
             {id === "notes" && recordingId ? <span class="dot" /> : null}
           </div>

@@ -4,7 +4,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { call, clock, noteDate, type MeetingNote, type NoteDetail, type Segment, type Settings } from "../api";
-import { More, Plus, Trash } from "../icons";
+import { More, NavNotes, Plus, Trash } from "../icons";
 import { Markdown } from "../markdown";
 
 const QUICK: [string, string][] = [
@@ -84,7 +84,10 @@ export function Notetaker(props: {
         {selected ? (
           <NoteView key={selected} id={selected} {...props} />
         ) : (
-          <div class="empty">
+          <div class="empty centered">
+            <div class="glyph">
+              <NavNotes />
+            </div>
             <h2>No meeting selected</h2>
             Click New, then Start recording when the meeting begins. Lin Flow also offers to start one when a call app picks up the microphone.
           </div>

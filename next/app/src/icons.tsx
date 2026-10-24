@@ -68,3 +68,35 @@ export const Close = ({ color = "currentColor" }: { color?: string }) => (
     <path d="M2 2l6 6M8 2L2 8" />
   </svg>
 );
+
+// The sidebar's section icons, after the SF Symbols the Swift app uses: blue whether or not
+// their row is selected (design/README.md).
+const nav = { width: 19, height: 19, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", "stroke-width": 1.5, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
+
+export const NavDictation = () => (
+  <svg {...nav}>
+    <rect x="7" y="2.5" width="6" height="10" rx="3" />
+    <path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" />
+  </svg>
+);
+
+export const NavNotes = () => (
+  <svg {...nav}>
+    <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" />
+    <path d="M6 8h8M6 11h8M6 14h5" />
+  </svg>
+);
+
+export const NavDictionary = () => (
+  <svg {...nav}>
+    <path d="M4.5 3.5A1.5 1.5 0 0 1 6 2h9.5v13H6a1.5 1.5 0 0 0-1.5 1.5zM4.5 16.5A1.5 1.5 0 0 0 6 18h9.5" />
+    <path d="M8 11l2-5.5 2 5.5M8.7 9.2h2.6" />
+  </svg>
+);
+
+export const NavSettings = () => (
+  <svg {...nav}>
+    <circle cx="10" cy="10" r="2.6" />
+    <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" />
+  </svg>
+);

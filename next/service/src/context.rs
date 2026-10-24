@@ -118,6 +118,8 @@ mod tests {
 
     #[test]
     fn this_build_runs_beside_the_installed_app() {
-        assert_eq!(linflow_core::paths::APP_FOLDER, "Lin Flow Next", "cut-over changes this, the talk key and the fleet together");
+        if option_env!("LINFLOW_APP_FOLDER").is_none() {
+            assert_eq!(linflow_core::paths::APP_FOLDER, "Lin Flow Next", "cut-over changes this, the talk key and the fleet together");
+        }
     }
 }

@@ -1,14 +1,20 @@
 //! Where Lin Flow keeps its files.
 //!
-//! Lin Flow Next keeps its own folder until John says cut over, so it never writes beside the
-//! installed app: two apps syncing one `dictionary-sync.json` or appending to one
+//! Lin Flow Next keeps its own folder until John says cut over (a cut-over build, below, opens
+//! the installed app's once that app is quit), so it never writes beside the installed app: two apps syncing one `dictionary-sync.json` or appending to one
 //! `history.jsonl` would corrupt both. `LINFLOW_DATA_DIR` points it anywhere, which is how the
 //! oracle reads the installed app's dictionary, read-only.
 
 use std::path::PathBuf;
 
-/// The folder's name. "Lin Flow" is the installed app's; this becomes it at cutover.
-pub const APP_FOLDER: &str = "Lin Flow Next";
+/// The folder's name. "Lin Flow" is the installed app's; this becomes it at cutover. A build
+/// made with `LINFLOW_APP_FOLDER="Lin Flow"` is a cut-over build: it opens the installed app's
+/// data and answers to its talk key, for the computer where Next has taken over (the Mac, from
+/// 2026-10-23, at John's word). Every other build, CI's among them, keeps its own folder.
+pub const APP_FOLDER: &str = match option_env!("LINFLOW_APP_FOLDER") {
+    Some(folder) => folder,
+    None => "Lin Flow Next",
+};
 
 pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("LINFLOW_DATA_DIR") {
