@@ -36,6 +36,10 @@ struct App {
 
 type Cmd<T> = Result<T, String>;
 
+/// The name in the menu bar and on the window: the data folder's, so a cut-over build is "Lin
+/// Flow" and one beside the installed app is "Lin Flow Next".
+const NAME: &str = linflow_core::paths::APP_FOLDER;
+
 /// A section of the main window to show: "dictation", "dictionary", "notes", "settings", or
 /// "note:<id>".
 #[derive(Clone, Serialize)]
@@ -118,7 +122,7 @@ fn main() {
             quit,
         ])
         .build(tauri::generate_context!())
-        .expect("Lin Flow Next could not start");
+        .expect("Lin Flow could not start");
     app.run(|app, event| match event {
         // Closing the window hides it; only Quit quits.
         RunEvent::ExitRequested { api, code: None, .. } => api.prevent_exit(),
@@ -187,7 +191,7 @@ fn show_main(app: &AppHandle, to: Option<&str>) {
 
 fn build_main(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     let w = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("Lin Flow Next")
+        .title(NAME)
         .inner_size(1100.0, 720.0)
         .min_inner_size(900.0, 560.0)
         .visible(visible)
@@ -281,17 +285,17 @@ fn apply_dock(app: &AppHandle, show: bool) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let state = app.state::<App>();
-    let status = MenuItem::with_id(app, "status", "Lin Flow Next", false, None::<&str>)?;
-    let open = MenuItem::with_id(app, "open", "Open Lin Flow Next", true, None::<&str>)?;
+    let status = MenuItem::with_id(app, "status", NAME, false, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", format!("Open {NAME}"), true, None::<&str>)?;
     let note = MenuItem::with_id(app, "note", "Start Meeting Note", true, None::<&str>)?;
     let pill = CheckMenuItem::with_id(app, "pill", "Show Pill", true, state.svc.ctx.settings().show_hud, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Lin Flow Next", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", format!("Quit {NAME}"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&status, &PredefinedMenuItem::separator(app)?, &open, &note, &pill, &PredefinedMenuItem::separator(app)?, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?;
     let tray = TrayIconBuilder::with_id("main")
         .icon(icon)
         .icon_as_template(true)
-        .tooltip("Lin Flow Next")
+        .tooltip(NAME)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, e| match e.id().as_ref() {

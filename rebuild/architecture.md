@@ -132,8 +132,9 @@ from cut-over.
 dictionary, history and Fn, so the Mac's build is a cut-over build: `LINFLOW_APP_FOLDER="Lin Flow"
 npx tauri build --bundles app` in `next/app` and signed with the "Lin Flow" identity, which `next/scripts/mac-build.sh` does so the
 Accessibility grant survives the next build. It opens `~/Library/Application Support/Lin Flow`,
-syncs as "John Macbook" and answers to Fn. The Swift app is quit, not removed, and still starts
-at login: quit Next from its tray and open Lin Flow to go back. Windows and CI build with no
+syncs as "John Macbook" and answers to Fn. On 2026-10-24 it became the Mac's only Lin Flow: built as "Lin
+Flow" (`mac-build.sh --install` puts it in `/Applications/Lin Flow.app`), the Swift app moved
+to the Trash with its login item removed, and the fleet's Mac job unloaded. Windows and CI build with no
 folder set, so they stay beside the C# app. `next/scripts/windows.ps1` installs CI's build there.
 
 **The talk key.** `APP_FOLDER` in `core/src/paths.rs` decides it: while it is `Lin Flow Next`,

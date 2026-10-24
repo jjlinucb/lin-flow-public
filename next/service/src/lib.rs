@@ -118,7 +118,7 @@ impl Service {
     /// from many threads.
     pub fn start(events: Sink) -> Arc<Service> {
         let ctx = Context::new(linflow_core::paths::data_dir(), events);
-        log::info!("Lin Flow Next starting; data in {}", ctx.data_dir.display());
+        log::info!("{} starting; data in {}", linflow_core::paths::APP_FOLDER, ctx.data_dir.display());
         let settings = ctx.settings();
         let _ = ctx.history.prune_recordings(settings.audio_retention_days, chrono::Utc::now());
         let readback = readback::Readback::new(ctx.clone());
