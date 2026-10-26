@@ -159,8 +159,10 @@ jobs:
           key: app
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # custom-protocol puts the built window inside the app. Without it the app loads its window from
+      # devUrl (http://localhost:1420), which nothing serves on a user's computer (the 10-24 zip did).
       - name: Build the app
-        run: cargo build --release -p lin-flow-next -p linflow-cli
+        run: cargo build --release -p lin-flow-next -p linflow-cli --features lin-flow-next/custom-protocol
 
       # One folder a Windows computer can run as it is, without Rust or MSVC: the app, the CLI and
       # whisper.cpp's DLLs in `native`, where the engine looks. `next/scripts/windows.ps1` fetches
