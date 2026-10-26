@@ -21,6 +21,11 @@ on:
   pull_request:
     paths: ["next/**", ".github/workflows/next.yml"]
   workflow_dispatch:
+    inputs:
+      cutover:
+        description: "Windows: build Lin Flow, on the C# app's data folder, for a computer where Next replaced it"
+        type: boolean
+        default: false
 
 concurrency:
   group: next-${{ github.ref }}
@@ -161,8 +166,17 @@ jobs:
 
       # custom-protocol puts the built window inside the app. Without it the app loads its window from
       # devUrl (http://localhost:1420), which nothing serves on a user's computer (the 10-24 zip did).
+      # A cut-over build, like mac-build.sh's: "Lin Flow" in the window and the exe, `%APPDATA%\Lin Flow`
+      # for its data, the C# app's talk key as the default. The identifier stays, so the window's
+      # data and the single-instance lock carry over. MBC262 and MBC253 have retired the C# app.
       - name: Build the app
-        run: cargo build --release -p lin-flow-next -p linflow-cli --features lin-flow-next/custom-protocol
+        shell: pwsh
+        run: |
+          if ('${{ inputs.cutover }}' -eq 'true') {
+            $env:LINFLOW_APP_FOLDER = 'Lin Flow'
+            $env:TAURI_CONFIG = '{"productName":"Lin Flow"}'
+          }
+          cargo build --release -p lin-flow-next -p linflow-cli --features lin-flow-next/custom-protocol
 
       # One folder a Windows computer can run as it is, without Rust or MSVC: the app, the CLI and
       # whisper.cpp's DLLs in `native`, where the engine looks. `next/scripts/windows.ps1` fetches
@@ -185,7 +199,7 @@ jobs:
       - name: Keep the build
         uses: actions/upload-artifact@v4
         with:
-          name: lin-flow-next-windows
+          name: ${{ inputs.cutover && 'lin-flow-windows' || 'lin-flow-next-windows' }}
           path: next/dist/windows
           if-no-files-found: error
           retention-days: 30
