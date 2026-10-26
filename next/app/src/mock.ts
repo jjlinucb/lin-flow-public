@@ -71,6 +71,7 @@ const detail: NoteDetail = {
   busy: null,
   asking: false,
   speakers: ["You", "Others"],
+  audioFormat: "mp3",
 };
 
 class Mock {

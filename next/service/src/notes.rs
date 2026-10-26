@@ -8,8 +8,10 @@ use crate::events::{Event, NoteEvent, Toast, ToastAction};
 use linflow_core::llm::{self, Claude, Ollama};
 use linflow_core::meeting::detect::Recap;
 use linflow_core::meeting::summary::{self, Kind, NoteModel};
-use linflow_core::notes::{transcript_text, MeetingNote, QuestionTurn, TranscriptSegment};
+use linflow_core::audio_export::{self, Format};
+use linflow_core::notes::{follow_title, transcript_text, AudioExportRecord, MeetingNote, QuestionTurn, TranscriptSegment};
 use std::collections::{HashSet, VecDeque};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 /// The model for running notes: the local one, since they run every minute and Claude costs
@@ -59,11 +61,12 @@ pub struct NoteWork {
     queue: Mutex<VecDeque<(String, bool)>>,
     summarizing: Mutex<HashSet<String>>,
     asking: Mutex<HashSet<String>>,
+    saving_audio: Mutex<HashSet<String>>,
 }
 
 impl NoteWork {
     pub fn new(ctx: Arc<Context>) -> Arc<NoteWork> {
-        Arc::new(NoteWork { ctx, transcribing: Mutex::new(None), queue: Mutex::new(VecDeque::new()), summarizing: Mutex::new(HashSet::new()), asking: Mutex::new(HashSet::new()) })
+        Arc::new(NoteWork { ctx, transcribing: Mutex::new(None), queue: Mutex::new(VecDeque::new()), summarizing: Mutex::new(HashSet::new()), asking: Mutex::new(HashSet::new()), saving_audio: Mutex::new(HashSet::new()) })
     }
 
     fn status(&self, id: &str, text: Option<String>) {
@@ -80,6 +83,9 @@ impl NoteWork {
         }
         if self.summarizing.lock().unwrap().contains(id) {
             return Some("summarizing");
+        }
+        if self.saving_audio.lock().unwrap().contains(id) {
+            return Some("saving audio");
         }
         None
     }
@@ -308,6 +314,58 @@ impl NoteWork {
         });
     }
 
+    /// Both sides of a meeting as one file at `to`, leveled and mixed (`audio_export`), with its
+    /// progress as the note's status. The file is remembered on the note, so it takes the note's
+    /// new title when the note is renamed.
+    pub fn save_audio(&self, id: &str, to: &Path, format: Format) -> Result<(), String> {
+        let note = self.ctx.notes.load(id).ok_or("That meeting is gone.")?;
+        if !self.saving_audio.lock().unwrap().insert(id.to_string()) {
+            return Err("This meeting's audio is already being saved.".into());
+        }
+        let started = std::time::Instant::now();
+        let mut shown = -1;
+        let result = audio_export::export_note(&self.ctx.notes.folder(id), &note.title, to, format, &mut |p| {
+            let percent = (p * 100.0) as i32;
+            if percent != shown {
+                shown = percent;
+                self.status(id, Some(format!("Saving audio… {percent}%")));
+            }
+        });
+        self.saving_audio.lock().unwrap().remove(id);
+        self.status(id, None);
+        let r = result.map_err(|e| {
+            log::error!("notes: saving the audio of {id}: {e}");
+            format!("The audio was not saved: {e}")
+        })?;
+        let size = std::fs::metadata(to).map(|m| m.len()).unwrap_or(0);
+        let gains: Vec<String> = r.gains.iter().map(|(k, g)| format!("{k} {g:+.1} dB")).collect();
+        log::info!(
+            "notes: {id} audio saved as {}, {:.0} s, {:.1} MB, {}, {} (call {:+.2} s from the mic), in {:.1} s",
+            format.ext(),
+            r.seconds,
+            size as f64 / 1e6,
+            gains.join(", "),
+            r.coupling.name(),
+            r.delay,
+            started.elapsed().as_secs_f64()
+        );
+        if let Some(mut n) = self.ctx.notes.load(id) {
+            let path = to.to_string_lossy().into_owned();
+            let mut exports: Vec<AudioExportRecord> = n.audio_exports.take().unwrap_or_default().into_iter().filter(|e| e.path != path).collect();
+            exports.push(AudioExportRecord { path, title: note.title.clone() });
+            n.audio_exports = Some(exports);
+            if n.title != note.title {
+                follow(&mut n); // renamed while it saved
+            }
+            self.ctx.notes.save(&n).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn is_saving_audio(&self, id: &str) -> bool {
+        self.saving_audio.lock().unwrap().contains(id)
+    }
+
     pub fn is_asking(&self, id: &str) -> bool {
         self.asking.lock().unwrap().contains(id)
     }
@@ -321,9 +379,21 @@ pub fn rename(ctx: &Context, id: &str, title: &str) -> Result<MeetingNote, Strin
         return Ok(note);
     }
     note.title = title.to_string();
+    follow(&mut note);
     ctx.notes.save(&note).map_err(|e| e.to_string())?;
     ctx.emit(Event::Note { event: NoteEvent::Listed });
     Ok(note)
+}
+
+/// Renames the audio files saved from a note to its title (`follow_title`).
+fn follow(note: &mut MeetingNote) {
+    let Some(exports) = &note.audio_exports else { return };
+    let moved = follow_title(exports, &note.title);
+    if &moved != exports {
+        let names: Vec<&str> = moved.iter().filter_map(|e| Path::new(&e.path).file_name()?.to_str()).collect();
+        log::info!("notes: {} saved audio renamed to follow the title: {names:?}", note.id);
+        note.audio_exports = Some(moved);
+    }
 }
 
 /// Renames a speaker throughout a note's transcript: "Others" becomes "Dana" when only one
@@ -363,4 +433,30 @@ pub fn speakers(segments: &[TranscriptSegment]) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::Sink;
+
+    #[test]
+    fn saved_audio_is_remembered_and_follows_a_rename() {
+        let dir = std::env::temp_dir().join(format!("linflow-saveaudio-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let events: Sink = Arc::new(|_| {});
+        let ctx = Context::new(dir.clone(), events);
+        let note = ctx.notes.create("Meeting Oct 26, 1:34 PM").unwrap();
+        let tone: Vec<f32> = (0..32_000).map(|i| 0.05 * (i as f32 * 0.07).sin()).collect();
+        linflow_core::wav::write(&ctx.notes.audio_path(&note.id, "mic"), &tone, 16_000).unwrap();
+        let out = dir.join("Meeting Oct 26, 1.34 PM.wav");
+        NoteWork::new(ctx.clone()).save_audio(&note.id, &out, Format::Wav).unwrap();
+        assert!(out.exists());
+        rename(&ctx, &note.id, "Budget: Q4").unwrap();
+        let moved = dir.join("Budget. Q4.wav");
+        assert!(moved.exists() && !out.exists(), "the file takes the note's new title");
+        let saved = ctx.notes.load(&note.id).unwrap().audio_exports.unwrap();
+        assert_eq!(saved, vec![AudioExportRecord { path: moved.to_string_lossy().into_owned(), title: "Budget: Q4".into() }]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

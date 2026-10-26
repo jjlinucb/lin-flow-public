@@ -186,6 +186,9 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
             <div class="items">
               <button onClick={() => call("copy_markdown", { id }).catch(fail)}>Copy as Markdown</button>
               <button onClick={() => call("save_markdown", { id }).catch(fail)}>Save as Markdown…</button>
+              <button disabled={recording || !d.hasAudio || status !== null} onClick={() => call("save_audio", { id }).catch(fail)} title="Both sides of the meeting in one file, your side leveled to the call's. The file takes the note's new name when you rename it.">
+                Save Audio as {d.audioFormat.toUpperCase()}…
+              </button>
               <button onClick={() => call("reveal_note", { id })}>Show Files</button>
               <hr />
               <button disabled={recording || !d.hasAudio || status !== null} onClick={() => call("transcribe_again", { id }).catch(fail)} title="Rebuild the transcript from the saved audio with the current speech model. The live transcript is kept as transcript-live.jsonl.">

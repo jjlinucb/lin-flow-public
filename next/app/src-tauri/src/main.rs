@@ -110,6 +110,7 @@ fn main() {
             copy_markdown,
             save_markdown,
             reveal_note,
+            save_audio,
             open_data_folder,
             open_log,
             toast_action,
@@ -693,6 +694,28 @@ async fn save_markdown(handle: AppHandle, app: State<'_, App>, id: String) -> Cm
     };
     let path = path.into_path().map_err(|e| e.to_string())?;
     std::fs::write(path, md).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Both sides of the meeting as one file, wherever John picks, then shown in the Finder.
+#[tauri::command]
+async fn save_audio(handle: AppHandle, app: State<'_, App>, id: String) -> Cmd<bool> {
+    use linflow_core::audio_export::preferred_format;
+    use tauri_plugin_dialog::DialogExt;
+    use tauri_plugin_opener::OpenerExt;
+    app.svc.can_save_audio(&id)?;
+    let format = preferred_format();
+    let title = app.svc.ctx.notes.load(&id).map(|n| n.title).unwrap_or_else(|| "Meeting".into());
+    let name = linflow_core::notes::file_name(&title, format.ext());
+    let kind = format.ext().to_uppercase();
+    let Some(path) = handle.dialog().file().set_file_name(name).add_filter(kind, &[format.ext()]).blocking_save_file() else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    let svc = app.svc.clone();
+    let to = path.clone();
+    tauri::async_runtime::spawn_blocking(move || svc.save_audio(&id, &to, format)).await.map_err(|e| e.to_string())??;
+    let _ = handle.opener().reveal_item_in_dir(path);
     Ok(true)
 }
 

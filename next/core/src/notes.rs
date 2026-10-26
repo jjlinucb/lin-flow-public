@@ -69,6 +69,57 @@ pub struct MeetingNote {
     /// The app did not stop this recording; the next launch closed it from what was on disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovered: Option<bool>,
+    /// The audio files Save Audio wrote, so a renamed note can take its files' names along.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_exports: Option<Vec<AudioExportRecord>>,
+}
+
+/// A file Save Audio wrote, and the title its name came from.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AudioExportRecord {
+    pub path: String,
+    pub title: String,
+}
+
+/// A note's title as a file name. Finder shows a ":" as "/", and "/" separates folders. Windows
+/// refuses a few more.
+pub fn file_name(title: &str, ext: &str) -> String {
+    let mut name = title.replace(':', ".").replace('/', "-");
+    if cfg!(windows) {
+        name = name.replace(['\\', '*', '?', '"', '<', '>', '|'], "-");
+    }
+    let mut name = name.trim().to_string();
+    if name.is_empty() || name.starts_with('.') {
+        name = format!("Meeting{name}");
+    }
+    format!("{name}.{ext}")
+}
+
+/// Gives each exported file the note's current title. A file still named for the title it was
+/// saved under follows. One John renamed or moved himself is his and is let go, and a gone file
+/// is forgotten. One whose new name is taken waits for the next rename.
+pub fn follow_title(exports: &[AudioExportRecord], title: &str) -> Vec<AudioExportRecord> {
+    exports
+        .iter()
+        .filter_map(|r| {
+            let path = Path::new(&r.path);
+            let ext = path.extension()?.to_str()?;
+            if !path.exists() || path.file_name()?.to_str()? != file_name(&r.title, ext) {
+                return None;
+            }
+            let target = path.with_file_name(file_name(title, ext));
+            let moved = AudioExportRecord { path: target.to_string_lossy().into_owned(), title: title.to_string() };
+            if target == path {
+                return Some(moved);
+            }
+            let only_case = target.to_string_lossy().to_lowercase() == r.path.to_lowercase(); // the disk ignores case
+            if (only_case || !target.exists()) && fs::rename(path, &target).is_ok() {
+                Some(moved)
+            } else {
+                Some(r.clone())
+            }
+        })
+        .collect()
 }
 
 fn yes() -> bool {
@@ -89,6 +140,7 @@ impl MeetingNote {
             transcribed_from_audio_at: None,
             transcript_model: None,
             recovered: None,
+            audio_exports: None,
         }
     }
 
@@ -379,6 +431,29 @@ pub fn read_segments(path: &Path) -> Vec<TranscriptSegment> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_audio_follows_a_renamed_note_unless_john_named_it() {
+        let dir = crate::history::tests::tempdir();
+        let file = |name: &str| {
+            let p = dir.join(name);
+            fs::write(&p, [1]).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        let rec = |path: String, title: &str| AudioExportRecord { path, title: title.into() };
+        let saved = rec(file("Meeting Oct 8, 11.22 AM.mp3"), "Meeting Oct 8, 11:22 AM");
+        let mine = rec(file("for Dana.mp3"), "Meeting Oct 8, 11:22 AM");
+        let gone = rec(dir.join("gone.mp3").to_string_lossy().into_owned(), "gone");
+        let after = follow_title(&[saved, mine.clone(), gone], "Pass file viewer: demo");
+        let moved = dir.join("Pass file viewer. demo.mp3");
+        assert_eq!(after, vec![rec(moved.to_string_lossy().into_owned(), "Pass file viewer: demo")]);
+        assert!(moved.exists() && Path::new(&mine.path).exists());
+        file("Taken.mp3");
+        assert_eq!(follow_title(&after, "Taken"), after, "a taken name leaves the file to wait");
+        let cased = follow_title(&after, "pass file viewer: demo");
+        assert_eq!(cased[0].title, "pass file viewer: demo");
+        assert!(fs::read_dir(&dir).unwrap().flatten().any(|e| e.file_name() == "pass file viewer. demo.mp3"), "a change of case alone renames the file");
+    }
 
     #[test]
     fn reads_the_macs_note_and_writes_the_same_shape() {

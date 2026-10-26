@@ -300,6 +300,51 @@ fn meeting_cleaner() -> linflow_core::text::TextCleaner {
 /// `notes-transcribe <note id> [--save] [--model <id>]`: the whole-file pass over a note's saved
 /// audio, as the app runs it when a meeting ends. Prints the transcript. `--save` replaces the
 /// note's, keeping the old one as transcript-live.jsonl.
+/// What Save Audio in a note's menu does: both sides leveled, mixed and encoded. The output's
+/// extension picks MP3 or WAV. Without one, the file is named after the note, in this folder.
+/// A note folder can be given by path, so a meeting in another data folder is read in place.
+pub fn notes_export(args: &[String]) {
+    use linflow_core::audio_export::{self, Format};
+    let Some(target) = args.get(1) else { usage() };
+    let folder = if Path::new(target).is_dir() { Path::new(target).to_path_buf() } else { NotesStore::new(&paths::data_dir()).folder(target) };
+    let note: Option<MeetingNote> = std::fs::read_to_string(folder.join("note.json")).ok().and_then(|t| serde_json::from_str(&t).ok());
+    let title = note.map(|n| n.title).unwrap_or_else(|| folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+    let (out, format) = match args.get(2) {
+        Some(o) => {
+            let Some(f) = Path::new(o).extension().and_then(|e| e.to_str()).and_then(Format::from_ext) else {
+                eprintln!("the output must end in .mp3 or .wav");
+                std::process::exit(2)
+            };
+            (Path::new(o).to_path_buf(), f)
+        }
+        None => {
+            let f = audio_export::preferred_format();
+            (Path::new(&linflow_core::notes::file_name(&title, f.ext())).to_path_buf(), f)
+        }
+    };
+    let t0 = Instant::now();
+    match audio_export::export_note(&folder, &title, &out, format, &mut |p| eprint!("  {:3.0}%\r", p * 100.0)) {
+        Ok(r) => {
+            let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+            let gains: Vec<String> = r.gains.iter().map(|(k, g)| format!("{k} {g:+.1} dB")).collect();
+            println!(
+                "{}: {:.0} s, {:.1} MB, {}, {} (call {:+.2} s from the mic), in {:.1} s",
+                out.display(),
+                r.seconds,
+                size as f64 / 1e6,
+                gains.join(", "),
+                r.coupling.name(),
+                r.delay,
+                t0.elapsed().as_secs_f64()
+            );
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1)
+        }
+    }
+}
+
 pub fn notes_transcribe(args: &[String]) {
     let f = flags(args);
     let Some(id) = f.positional.get(1).cloned() else { usage() };
