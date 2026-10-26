@@ -2,6 +2,7 @@
 //! is the same code on the Mac and on Windows and runs under `cargo test` anywhere.
 
 pub mod audio;
+pub mod audio_export;
 pub mod fsutil;
 pub mod history;
 pub mod hotkey;

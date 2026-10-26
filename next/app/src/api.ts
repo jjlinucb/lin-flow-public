@@ -116,6 +116,7 @@ export interface MeetingNote {
   transcribedFromAudioAt?: string;
   transcriptModel?: string;
   recovered?: boolean;
+  audioExports?: { path: string; title: string }[];
 }
 
 export interface Segment {
@@ -145,6 +146,8 @@ export interface NoteDetail {
   busy?: string | null;
   asking: boolean;
   speakers: string[];
+  /** What Save Audio writes here: "mp3", or "wav" without LAME. */
+  audioFormat: string;
 }
 
 export type ToastAction =
