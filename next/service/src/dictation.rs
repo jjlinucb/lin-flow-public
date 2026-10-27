@@ -347,10 +347,16 @@ impl Dictation {
             }
         };
         // A take that produced nothing is retried on the other engine kind before it is given
-        // up on: in heavy babble Parakeet returns nothing where Whisper degrades (NOISE.md).
-        if is_blank(&result.text) {
+        // up on: in heavy babble Parakeet returns nothing where Whisper degrades (NOISE.md). So is
+        // a Parakeet take in another alphabet when the language is English: Parakeet has no
+        // language switch, and Whisper is told English (2026-10-27, John: "I only speak English").
+        let wrong_language = kind == models::EngineKind::Parakeet
+            && settings.language == "en"
+            && linflow_core::text::unicode::mostly_not_latin(&result.text);
+        if is_blank(&result.text) || wrong_language {
             if let Some(path) = models::rescue_model(kind, &models::installed()) {
-                log::info!("empty transcript; retrying on {}", models::id_from_path(&path));
+                let why = if wrong_language { "not in English" } else { "empty transcript" };
+                log::info!("{why}: {}; retrying on {}", result.text, models::id_from_path(&path));
                 if let Ok(mut second) = linflow_engine::load(&path) {
                     if let Ok(retry) = second.transcribe(&job.samples, &options) {
                         if !is_blank(&retry.text) {
