@@ -196,7 +196,7 @@ class Mock {
           claudeReady: true,
           syncStatus: "Off: no sync.env in the data folder.",
           dataDir: "~/Library/Application Support/Lin Flow Next",
-          logPath: "~/Library/Logs/Lin Flow Next/lin-flow-next.log",
+          logPath: "~/Library/Logs/Lin Flow/lin-flow.log",
           trusted: true,
           // ?platform=windows previews the Windows-only rows, such as Updates.
           platform: new URLSearchParams(location.search).get("platform") === "windows" ? "windows" : "mac",
