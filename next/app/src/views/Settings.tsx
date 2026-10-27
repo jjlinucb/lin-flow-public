@@ -1,7 +1,7 @@
 // Settings, in the groups the Mac app uses: Dictation, Notetaker, Shared totals, App.
 
 import { useEffect, useState } from "preact/hooks";
-import { call, type Settings as S, type SettingsView } from "../api";
+import { call, type Settings as S, type SettingsView, type UpdateView } from "../api";
 
 export function Settings({ view, recorded, onChange, onError }: { view: SettingsView | null; recorded: { raw?: string | null; label?: string | null } | null; onChange: (s: S) => void; onError: (e: string) => void }) {
   const [recording, setRecording] = useState(false);
@@ -162,8 +162,54 @@ export function Settings({ view, recorded, onChange, onError }: { view: Settings
             <button onClick={() => call("open_data_folder")}>Open Data Folder</button>
             <button onClick={() => call("open_log")}>Open Log</button>
           </div>
+          {isMac ? null : <Updates onError={onError} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Windows only: the Mac's app is signed on the Mac and updates from its build script. */
+function Updates({ onError }: { onError: (e: string) => void }) {
+  const [view, setView] = useState<UpdateView | null>(null);
+  const [busy, setBusy] = useState<"" | "checking" | "updating">("");
+  const check = () => {
+    setBusy("checking");
+    call<UpdateView>("check_update")
+      .then(setView)
+      .catch((e) => onError(String(e)))
+      .finally(() => setBusy(""));
+  };
+  const update = () => {
+    setBusy("updating");
+    // Lin Flow Next quits here and opens again once the new copy is in place.
+    call("install_update").catch((e) => {
+      setBusy("");
+      onError(String(e));
+    });
+  };
+  const line = !view
+    ? "Looks on GitHub for the newest Windows build. Nothing updates until you click Update."
+    : view.error
+      ? view.error
+      : view.newer
+        ? `A newer build is out: ${view.latest}, from ${view.published}. This one is ${view.current || "unknown"}.`
+        : `Up to date: ${view.current}.`;
+  return (
+    <div class="field">
+      <span class="label">
+        Updates
+        <span class="help">{busy === "updating" ? "Downloading. Lin Flow Next closes, updates and opens again." : line}</span>
+      </span>
+      {view?.newer ? (
+        <button disabled={busy !== ""} onClick={update}>
+          Update
+        </button>
+      ) : (
+        <button disabled={busy !== ""} onClick={check}>
+          {busy === "checking" ? "Checking…" : "Check for updates"}
+        </button>
+      )}
     </div>
   );
 }

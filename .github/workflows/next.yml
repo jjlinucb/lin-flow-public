@@ -125,12 +125,45 @@ jobs:
         if: '!cancelled()'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Update in Settings hands the swap to scripts/update-swap.ps1. Here it runs, under Windows
+      # PowerShell as the app starts it, on a made-up install: one zip that swaps in, and one with
+      # no app in it that must leave the old copy where it was.
+      - name: update swap
+        if: '!cancelled()'
+        shell: pwsh
+        run: |
+          cargo build -p linflow-cli
+          $t = Join-Path $env:RUNNER_TEMP 'swap'
+          $dest = Join-Path $t 'Lin Flow Next'
+          $pkg = Join-Path $t 'pkg'
+          New-Item -ItemType Directory -Force $dest, (Join-Path $pkg 'native') | Out-Null
+          Set-Content (Join-Path $dest 'old.txt') 'old'
+          Copy-Item target/debug/linflow.exe $pkg
+          Copy-Item C:/Windows/System32/whoami.exe (Join-Path $pkg 'lin-flow-next.exe')
+          Set-Content (Join-Path $pkg 'native/new.txt') 'new'
+          $zip = Join-Path $t 'lin-flow-next-windows.zip'
+          Compress-Archive (Join-Path $pkg '*') $zip
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-swap.ps1 -Zip $zip -Dest $dest -ProcId 0
+          if (-not (Test-Path (Join-Path $dest 'native/new.txt'))) { throw 'the new copy was not swapped in' }
+          if (Test-Path (Join-Path $dest 'old.txt')) { throw 'the old copy is still there' }
+          if (Test-Path "$dest.old") { throw 'the old folder was left behind' }
+          Remove-Item -Recurse -Force $pkg
+          New-Item -ItemType Directory -Force $pkg | Out-Null
+          Set-Content (Join-Path $pkg 'readme.txt') 'no app here'
+          Compress-Archive (Join-Path $pkg '*') $zip
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-swap.ps1 -Zip $zip -Dest $dest -ProcId 0
+          if (-not (Test-Path (Join-Path $dest 'native/new.txt'))) { throw 'a bad zip replaced the install' }
+          Get-Content (Join-Path $env:TEMP 'lin-flow-next-update.log')
+
   # Tests and lint already compile every line of the app on a pull request. The optimized build
   # waits for main, where a release would come from.
   windows-app:
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
     timeout-minutes: 45
+    # To replace the windows-latest release that Check for updates reads.
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: next
@@ -187,3 +220,22 @@ jobs:
           path: next/dist/windows
           if-no-files-found: error
           retention-days: 30
+
+      # Check for updates in the Windows app's Settings reads this release (next/core/src/update.rs).
+      # A release asset downloads without a GitHub sign-in, which a CI artifact does not. One release,
+      # replaced on every green build of main, aimed at the commit it was built from. Only on main, so
+      # a manual run from a branch never reaches the laptops.
+      - name: Publish for Check for updates
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'lin-flow-next-windows.zip'
+          Compress-Archive -Path dist/windows/* -DestinationPath $zip -Force
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          gh release delete windows-latest --yes --cleanup-tag 2>$null
+          gh release create windows-latest $zip --target $env:GITHUB_SHA --prerelease --latest=false `
+            --title "Lin Flow Next for Windows, $short" `
+            --notes "Built from $env:GITHUB_SHA on main. Settings > App > Check for updates installs it; nothing updates by itself."
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed.' }

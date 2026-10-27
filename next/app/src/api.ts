@@ -81,6 +81,15 @@ export interface ModelView {
   note: string;
 }
 
+/** Check for updates on Windows: this build's commit against the newest release on GitHub. */
+export interface UpdateView {
+  current: string;
+  latest: string | null;
+  published: string | null;
+  newer: boolean;
+  error: string | null;
+}
+
 export interface SettingsView {
   settings: Settings;
   hotkey: string;
