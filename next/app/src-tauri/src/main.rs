@@ -286,6 +286,17 @@ fn apply_dock(app: &AppHandle, show: bool) {
 
 // MARK: tray
 
+// The Mac's menu bar takes a black template glyph and tints it. Windows shows a tray icon as it
+// is, so there it is the Lin Flow mark, with a red dot while recording, as the C# app had.
+#[cfg(windows)]
+const TRAY_IDLE: &[u8] = include_bytes!("../icons/windows/tray.png");
+#[cfg(windows)]
+const TRAY_BUSY: &[u8] = include_bytes!("../icons/windows/tray-recording.png");
+#[cfg(not(windows))]
+const TRAY_IDLE: &[u8] = include_bytes!("../icons/tray@2x.png");
+#[cfg(not(windows))]
+const TRAY_BUSY: &[u8] = include_bytes!("../icons/tray-recording.png");
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let state = app.state::<App>();
     let status = MenuItem::with_id(app, "status", NAME, false, None::<&str>)?;
@@ -294,7 +305,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let pill = CheckMenuItem::with_id(app, "pill", "Show Pill", true, state.svc.ctx.settings().show_hud, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", format!("Quit {NAME}"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&status, &PredefinedMenuItem::separator(app)?, &open, &note, &pill, &PredefinedMenuItem::separator(app)?, &quit])?;
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?;
+    let icon = tauri::image::Image::from_bytes(TRAY_IDLE)?;
     let tray = TrayIconBuilder::with_id("main")
         .icon(icon)
         .icon_as_template(true)
@@ -344,7 +355,7 @@ fn update_tray(app: &AppHandle, state: Option<(&str, &str)>) {
     let _ = t.note.set_text(if recording { "Stop Meeting Note" } else { "Start Meeting Note" });
     let _ = t.pill.set_checked(s.ctx.settings().show_hud);
     let busy = phase == "recording" || recording;
-    let bytes: &[u8] = if busy { include_bytes!("../icons/tray-recording.png") } else { include_bytes!("../icons/tray@2x.png") };
+    let bytes = if busy { TRAY_BUSY } else { TRAY_IDLE };
     if let Ok(img) = tauri::image::Image::from_bytes(bytes) {
         let _ = t.icon.set_icon(Some(img));
         let _ = t.icon.set_icon_as_template(!busy);

@@ -10,7 +10,7 @@ use serde_json::Value;
 
 pub const REPO: &str = "jjlinucb/lin-flow-public";
 pub const TAG: &str = "windows-latest";
-pub const ASSET: &str = "lin-flow-next-windows.zip";
+pub const ASSET: &str = "lin-flow-windows.zip";
 
 /// The commit this build came from, short, or empty outside a git checkout.
 pub fn current() -> &'static str {
@@ -40,7 +40,7 @@ impl Release {
 pub fn latest_request() -> HttpRequest {
     HttpRequest::get(format!("https://api.github.com/repos/{REPO}/releases/tags/{TAG}"))
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "lin-flow-next")
+        .header("User-Agent", "lin-flow")
 }
 
 /// The release's commit, date and zip, or None when the answer is not a release with the zip.
@@ -62,7 +62,7 @@ pub fn parse_release(body: &[u8]) -> Option<Release> {
 
 /// Run by PowerShell once the app has quit: unpack the zip, check the new copy starts, swap the
 /// folders, and open Lin Flow again. A failure at any step keeps the old copy and opens it, and
-/// every step is logged to `lin-flow-next-update.log` in TEMP.
+/// every step is logged to `lin-flow-update.log` in TEMP.
 pub const SWAP_SCRIPT: &str = include_str!("../../scripts/update-swap.ps1");
 
 #[cfg(test)]
@@ -79,7 +79,7 @@ mod tests {
         .into_bytes()
     }
 
-    const URL: &str = "https://github.com/jjlinucb/lin-flow-public/releases/download/windows-latest/lin-flow-next-windows.zip";
+    const URL: &str = "https://github.com/jjlinucb/lin-flow-public/releases/download/windows-latest/lin-flow-windows.zip";
 
     #[test]
     fn reads_the_release_and_compares_commits() {
@@ -95,7 +95,7 @@ mod tests {
     fn refuses_what_is_not_this_repos_zip() {
         assert_eq!(parse_release(&release("main", ASSET, URL)), None);
         assert_eq!(parse_release(&release("b0168ec1234", "other.zip", URL)), None);
-        assert_eq!(parse_release(&release("b0168ec1234", ASSET, "https://evil.example/lin-flow-next-windows.zip")), None);
+        assert_eq!(parse_release(&release("b0168ec1234", ASSET, "https://evil.example/lin-flow-windows.zip")), None);
         assert_eq!(parse_release(b"{\"message\": \"Not Found\"}"), None);
         assert_eq!(parse_release(b"not json"), None);
     }

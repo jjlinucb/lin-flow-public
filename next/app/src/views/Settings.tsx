@@ -182,7 +182,7 @@ function Updates({ onError }: { onError: (e: string) => void }) {
   };
   const update = () => {
     setBusy("updating");
-    // Lin Flow Next quits here and opens again once the new copy is in place.
+    // Lin Flow quits here and opens again once the new copy is in place.
     call("install_update").catch((e) => {
       setBusy("");
       onError(String(e));
@@ -199,7 +199,7 @@ function Updates({ onError }: { onError: (e: string) => void }) {
     <div class="field">
       <span class="label">
         Updates
-        <span class="help">{busy === "updating" ? "Downloading. Lin Flow Next closes, updates and opens again." : line}</span>
+        <span class="help">{busy === "updating" ? "Downloading. Lin Flow closes, updates and opens again." : line}</span>
       </span>
       {view?.newer ? (
         <button disabled={busy !== ""} onClick={update}>

@@ -49,12 +49,12 @@ impl Service {
             return Err("This is already the newest build.".into());
         }
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let dest = exe.parent().ok_or("Lin Flow Next's folder is unknown")?.to_path_buf();
+        let dest = exe.parent().ok_or("Lin Flow's folder is unknown")?.to_path_buf();
         let temp = std::env::temp_dir();
         let zip = temp.join(update::ASSET);
         log::info!("update: downloading {} from {}", release.short(), release.zip_url);
         linflow_core::net::download(&release.zip_url, &zip, &mut |_| {}, &|| true)?;
-        let script = temp.join("lin-flow-next-update.ps1");
+        let script = temp.join("lin-flow-update.ps1");
         std::fs::write(&script, update::SWAP_SCRIPT).map_err(|e| e.to_string())?;
         let mut cmd = std::process::Command::new("powershell.exe");
         cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"])
@@ -72,7 +72,7 @@ impl Service {
             cmd.creation_flags(0x0800_0000 | 0x0000_0008);
         }
         cmd.spawn().map_err(|e| format!("Could not start the update: {e}"))?;
-        log::info!("update: swapping to {} in {}; Lin Flow Next quits now", release.short(), dest.display());
+        log::info!("update: swapping to {} in {}; Lin Flow quits now", release.short(), dest.display());
         Ok(())
     }
 }
