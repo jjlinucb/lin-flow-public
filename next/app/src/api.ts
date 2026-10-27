@@ -81,6 +81,15 @@ export interface ModelView {
   note: string;
 }
 
+/** Check for updates on Windows: this build's commit against the newest release on GitHub. */
+export interface UpdateView {
+  current: string;
+  latest: string | null;
+  published: string | null;
+  newer: boolean;
+  error: string | null;
+}
+
 export interface SettingsView {
   settings: Settings;
   hotkey: string;
@@ -116,6 +125,7 @@ export interface MeetingNote {
   transcribedFromAudioAt?: string;
   transcriptModel?: string;
   recovered?: boolean;
+  audioExports?: { path: string; title: string }[];
 }
 
 export interface Segment {
@@ -145,6 +155,8 @@ export interface NoteDetail {
   busy?: string | null;
   asking: boolean;
   speakers: string[];
+  /** What Save Audio writes here: "mp3", or "wav" without LAME. */
+  audioFormat: string;
 }
 
 export type ToastAction =

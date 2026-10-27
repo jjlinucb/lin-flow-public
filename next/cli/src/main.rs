@@ -29,6 +29,7 @@ fn usage() -> ! {
   linflow learn-test <wrote> <now>              what that fix would teach the dictionary; saves nothing
   linflow notes-repair [file.wav]               fix a WAV cut short, or close unfinished meetings
   linflow notes-transcribe <note id> [--save] [--model <id>]   the whole-file pass over a meeting
+  linflow notes-export <note id|folder> [<out.mp3|out.wav>]   both sides of a note in one file, as Save Audio does
   linflow notes-test <audio> [--model <id>]     a file through the live transcriber, line by line
   linflow running-notes-test <transcript.jsonl> [--model claude|ollama]   replay a meeting's notes
   These open the microphone, read another app's field or paste, so only when asked:
@@ -85,6 +86,7 @@ fn main() {
         "learn-test" => diag::learn_test(&args),
         "notes-repair" => diag::notes_repair(&args),
         "notes-transcribe" => diag::notes_transcribe(&args),
+        "notes-export" => diag::notes_export(&args),
         "notes-test" => diag::notes_test(&args),
         "running-notes-test" => diag::running_notes_test(&args),
         "mic-test" => diag::mic_test(),

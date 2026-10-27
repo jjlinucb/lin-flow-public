@@ -125,12 +125,47 @@ jobs:
         if: '!cancelled()'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Update in Settings hands the swap to scripts/update-swap.ps1. Here it runs, under Windows
+      # PowerShell as the app starts it, on a made-up install: one zip that swaps in, and one with
+      # no app in it that must leave the old copy where it was.
+      - name: update swap
+        if: '!cancelled()'
+        shell: pwsh
+        run: |
+          cargo build -p linflow-cli
+          $t = Join-Path $env:RUNNER_TEMP 'swap'
+          $dest = Join-Path $t 'Lin Flow'
+          $pkg = Join-Path $t 'pkg'
+          New-Item -ItemType Directory -Force $dest, (Join-Path $pkg 'native') | Out-Null
+          Set-Content (Join-Path $dest 'old.txt') 'old'
+          Copy-Item target/debug/linflow.exe $pkg
+          Copy-Item C:/Windows/System32/whoami.exe (Join-Path $pkg 'lin-flow.exe')
+          Set-Content (Join-Path $pkg 'native/new.txt') 'new'
+          $zip = Join-Path $t 'lin-flow-windows.zip'
+          Compress-Archive (Join-Path $pkg '*') $zip
+          # Started from inside the install folder, as the app is from its shortcuts.
+          $swap = (Resolve-Path scripts/update-swap.ps1).Path
+          Start-Process powershell -Wait -WorkingDirectory $dest -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$swap`"", '-Zip', "`"$zip`"", '-Dest', "`"$dest`"", '-ProcId', '0'
+          if (-not (Test-Path (Join-Path $dest 'native/new.txt'))) { throw 'the new copy was not swapped in' }
+          if (Test-Path (Join-Path $dest 'old.txt')) { throw 'the old copy is still there' }
+          if (Test-Path "$dest.old") { throw 'the old folder was left behind' }
+          Remove-Item -Recurse -Force $pkg
+          New-Item -ItemType Directory -Force $pkg | Out-Null
+          Set-Content (Join-Path $pkg 'readme.txt') 'no app here'
+          Compress-Archive (Join-Path $pkg '*') $zip
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-swap.ps1 -Zip $zip -Dest $dest -ProcId 0
+          if (-not (Test-Path (Join-Path $dest 'native/new.txt'))) { throw 'a bad zip replaced the install' }
+          Get-Content (Join-Path $env:TEMP 'lin-flow-update.log')
+
   # Tests and lint already compile every line of the app on a pull request. The optimized build
   # waits for main, where a release would come from.
   windows-app:
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
     timeout-minutes: 45
+    # To replace the windows-latest release that Check for updates reads.
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: next
@@ -159,22 +194,33 @@ jobs:
           key: app
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # custom-protocol puts the built window inside the app. Without it the app loads its window from
-      # devUrl (http://localhost:1420), which nothing serves on a user's computer (the 10-24 zip did).
+      # Windows builds Lin Flow the way next/scripts/mac-build.sh builds the Mac's: a cut-over build
+      # on the "Lin Flow" data folder, named Lin Flow, through the Tauri CLI. The CLI is what turns on
+      # custom-protocol, which puts the built window inside the exe. A plain `cargo build` leaves it
+      # out and the app loads devUrl (http://localhost:1420) instead, which nothing serves on a
+      # user's computer: the windows-latest release of ea50382 (2026-10-27) shipped that way.
+      # The CLI gets the same folder, or `linflow doctor` would check the wrong one. WINDOWS.md has
+      # the whole Windows side.
       - name: Build the app
-        run: cargo build --release -p lin-flow-next -p linflow-cli --features lin-flow-next/custom-protocol
+        working-directory: next/app
+        env:
+          LINFLOW_APP_FOLDER: Lin Flow
+        run: |
+          npx tauri build --no-bundle --config src-tauri/tauri.windows-lin-flow.json
+          cargo build --release -p linflow-cli
 
       # One folder a Windows computer can run as it is, without Rust or MSVC: the app, the CLI and
       # whisper.cpp's DLLs in `native`, where the engine looks. `next/scripts/windows.ps1` fetches
       # it from the newest green run on main and installs it; `gh run download -n
-      # lin-flow-next-windows` gets the same zip by hand. The DLLs are the v1.9.1 release, the
+      # lin-flow-windows` gets the same zip by hand. The DLLs are the v1.9.1 release, the
       # whisper.cpp the Mac builds against.
       - name: Put the app together
         shell: pwsh
         run: |
           $out = 'dist/windows'
           New-Item -ItemType Directory -Force "$out/native" | Out-Null
-          Copy-Item target/release/lin-flow-next.exe, target/release/linflow.exe $out
+          Copy-Item target/release/lin-flow-next.exe "$out/lin-flow.exe"
+          Copy-Item target/release/linflow.exe $out
           $zip = Join-Path $env:RUNNER_TEMP 'whisper-bin-x64.zip'
           Invoke-WebRequest https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip -OutFile $zip
           Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'whisper') -Force
@@ -182,10 +228,45 @@ jobs:
           & "$out/linflow.exe" version
           Get-ChildItem -Recurse $out | Select-Object FullName, Length | Format-Table -AutoSize
 
+      # Nothing reaches Update in anyone's Settings unless the app carries its window and opens the
+      # Lin Flow folder. Both broke silently before: `doctor` passes on an exe with no window.
+      - name: Check the app before anyone gets it
+        shell: pwsh
+        run: |
+          $exe = 'dist/windows/lin-flow.exe'
+          $text = [IO.File]::ReadAllText((Resolve-Path $exe), [Text.Encoding]::Latin1)
+          if (-not $text.Contains('/assets/')) { throw 'lin-flow.exe has no window inside it (built without custom-protocol).' }
+          $info = (Get-Item $exe).VersionInfo
+          if ($info.ProductName -ne 'Lin Flow') { throw "lin-flow.exe calls itself '$($info.ProductName)', not Lin Flow." }
+          $doctor = & dist/windows/linflow.exe doctor 2>&1 | Out-String
+          if ($doctor -notmatch 'data folder: .*\\Lin Flow\r?\n') { throw "linflow doctor is not on the Lin Flow folder:`n$doctor" }
+          Write-Host "lin-flow.exe: window inside, named $($info.ProductName), data in the Lin Flow folder."
+          # doctor reports problems on a runner with no microphone or model; that is not this check's.
+          $global:LASTEXITCODE = 0
+
       - name: Keep the build
         uses: actions/upload-artifact@v4
         with:
-          name: lin-flow-next-windows
+          name: lin-flow-windows
           path: next/dist/windows
           if-no-files-found: error
           retention-days: 30
+
+      # Check for updates in the Windows app's Settings reads this release (next/core/src/update.rs).
+      # A release asset downloads without a GitHub sign-in, which a CI artifact does not. One release,
+      # replaced on every green build of main, aimed at the commit it was built from. Only on main, so
+      # a manual run from a branch never reaches the laptops.
+      - name: Publish for Check for updates
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'lin-flow-windows.zip'
+          Compress-Archive -Path dist/windows/* -DestinationPath $zip -Force
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          gh release delete windows-latest --yes --cleanup-tag 2>$null
+          gh release create windows-latest $zip --target $env:GITHUB_SHA --prerelease --latest=false `
+            --title "Lin Flow for Windows, $short" `
+            --notes "Built from $env:GITHUB_SHA on main. Settings > App > Check for updates installs it; nothing updates by itself."
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing the release failed.' }

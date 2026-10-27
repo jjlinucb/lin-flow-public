@@ -81,6 +81,21 @@ pub fn is_uppercase(g: &str) -> bool {
     uppercased(g) == g && lowercased(g) != g
 }
 
+/// Whether most of the letters are outside the Latin alphabet: Cyrillic, Greek and the like. Parakeet
+/// v3 picks its language by itself and has no switch, and on 2026-10-27 it heard John's "Hey, wrap
+/// up here" as "Гей, раппак кир". With the language set to English, such a take is decoded again.
+pub fn mostly_not_latin(s: &str) -> bool {
+    let latin = |c: char| c.is_ascii_alphabetic() || ('\u{C0}'..='\u{24F}').contains(&c) || ('\u{1E00}'..='\u{1EFF}').contains(&c);
+    let (mut letters, mut other) = (0usize, 0usize);
+    for c in s.chars().filter(|c| c.is_alphabetic()) {
+        letters += 1;
+        if !latin(c) {
+            other += 1;
+        }
+    }
+    letters > 0 && other * 2 > letters
+}
+
 /// `String.lowercased()`: each scalar's full lowercase mapping, with no final-sigma rule, which
 /// is where Rust's `str::to_lowercase` differs.
 pub fn lowercased(s: &str) -> String {
@@ -253,6 +268,16 @@ pub fn icu(pattern: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_a_take_in_another_alphabet() {
+        assert!(mostly_not_latin("Гей, раппак кир."));
+        assert!(mostly_not_latin("Γεια σου"));
+        assert!(!mostly_not_latin("Hey, wrap up here."));
+        assert!(!mostly_not_latin("Café déjà vu, naïve résumé."));
+        assert!(!mostly_not_latin("Call Влад about the 3 PM slot"));
+        assert!(!mostly_not_latin("123 ... !"));
+    }
 
     #[test]
     fn icu_space() {

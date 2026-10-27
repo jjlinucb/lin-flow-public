@@ -110,8 +110,11 @@ fn main() {
             copy_markdown,
             save_markdown,
             reveal_note,
+            save_audio,
             open_data_folder,
             open_log,
+            check_update,
+            install_update,
             toast_action,
             toast_layout,
             toast_hide,
@@ -283,6 +286,17 @@ fn apply_dock(app: &AppHandle, show: bool) {
 
 // MARK: tray
 
+// The Mac's menu bar takes a black template glyph and tints it. Windows shows a tray icon as it
+// is, so there it is the Lin Flow mark, with a red dot while recording, as the C# app had.
+#[cfg(windows)]
+const TRAY_IDLE: &[u8] = include_bytes!("../icons/windows/tray.png");
+#[cfg(windows)]
+const TRAY_BUSY: &[u8] = include_bytes!("../icons/windows/tray-recording.png");
+#[cfg(not(windows))]
+const TRAY_IDLE: &[u8] = include_bytes!("../icons/tray@2x.png");
+#[cfg(not(windows))]
+const TRAY_BUSY: &[u8] = include_bytes!("../icons/tray-recording.png");
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let state = app.state::<App>();
     let status = MenuItem::with_id(app, "status", NAME, false, None::<&str>)?;
@@ -291,7 +305,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let pill = CheckMenuItem::with_id(app, "pill", "Show Pill", true, state.svc.ctx.settings().show_hud, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", format!("Quit {NAME}"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&status, &PredefinedMenuItem::separator(app)?, &open, &note, &pill, &PredefinedMenuItem::separator(app)?, &quit])?;
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray@2x.png"))?;
+    let icon = tauri::image::Image::from_bytes(TRAY_IDLE)?;
     let tray = TrayIconBuilder::with_id("main")
         .icon(icon)
         .icon_as_template(true)
@@ -341,7 +355,7 @@ fn update_tray(app: &AppHandle, state: Option<(&str, &str)>) {
     let _ = t.note.set_text(if recording { "Stop Meeting Note" } else { "Start Meeting Note" });
     let _ = t.pill.set_checked(s.ctx.settings().show_hud);
     let busy = phase == "recording" || recording;
-    let bytes: &[u8] = if busy { include_bytes!("../icons/tray-recording.png") } else { include_bytes!("../icons/tray@2x.png") };
+    let bytes = if busy { TRAY_BUSY } else { TRAY_IDLE };
     if let Ok(img) = tauri::image::Image::from_bytes(bytes) {
         let _ = t.icon.set_icon(Some(img));
         let _ = t.icon.set_icon_as_template(!busy);
@@ -609,6 +623,18 @@ fn open_log(handle: AppHandle) {
     let _ = handle.opener().open_path(linflow_service::logging::path().display().to_string(), None::<&str>);
 }
 
+#[tauri::command]
+async fn check_update(app: State<'_, App>) -> Cmd<linflow_service::update::UpdateView> {
+    Ok(app.svc.check_update())
+}
+
+/// Starts the swap, then quits so PowerShell can replace the files. It opens Lin Flow again.
+#[tauri::command]
+async fn install_update(handle: AppHandle, app: State<'_, App>) -> Cmd<()> {
+    app.svc.install_update()?;
+    shutdown(&handle);
+}
+
 // MARK: commands: notes
 
 #[tauri::command]
@@ -693,6 +719,28 @@ async fn save_markdown(handle: AppHandle, app: State<'_, App>, id: String) -> Cm
     };
     let path = path.into_path().map_err(|e| e.to_string())?;
     std::fs::write(path, md).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Both sides of the meeting as one file, wherever John picks, then shown in the Finder.
+#[tauri::command]
+async fn save_audio(handle: AppHandle, app: State<'_, App>, id: String) -> Cmd<bool> {
+    use linflow_core::audio_export::preferred_format;
+    use tauri_plugin_dialog::DialogExt;
+    use tauri_plugin_opener::OpenerExt;
+    app.svc.can_save_audio(&id)?;
+    let format = preferred_format();
+    let title = app.svc.ctx.notes.load(&id).map(|n| n.title).unwrap_or_else(|| "Meeting".into());
+    let name = linflow_core::notes::file_name(&title, format.ext());
+    let kind = format.ext().to_uppercase();
+    let Some(path) = handle.dialog().file().set_file_name(name).add_filter(kind, &[format.ext()]).blocking_save_file() else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    let svc = app.svc.clone();
+    let to = path.clone();
+    tauri::async_runtime::spawn_blocking(move || svc.save_audio(&id, &to, format)).await.map_err(|e| e.to_string())??;
+    let _ = handle.opener().reveal_item_in_dir(path);
     Ok(true)
 }
 

@@ -14,6 +14,7 @@ pub mod meeting;
 pub mod notes;
 pub mod readback;
 pub mod sync;
+pub mod update;
 
 pub use context::Context;
 pub use events::{DictationState, Event, NoteEvent, Sink, Toast, ToastAction};
@@ -63,6 +64,8 @@ pub struct NoteDetail {
     pub busy: Option<String>,
     pub asking: bool,
     pub speakers: Vec<String>,
+    /// What Save Audio writes on this computer: "mp3", or "wav" without LAME.
+    pub audio_format: &'static str,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -391,6 +394,7 @@ impl Service {
             elapsed: if recording { self.meetings.elapsed().unwrap_or(0.0) } else { note.duration_seconds },
             busy: self.work.busy(id).map(String::from),
             asking: self.work.is_asking(id),
+            audio_format: linflow_core::audio_export::preferred_format().ext(),
             recording,
             segments,
             note,
@@ -455,6 +459,25 @@ impl Service {
         }
         self.work.transcribe_from_audio(id, false);
         Ok(())
+    }
+
+    /// Why a note's audio can't be saved right now, before the save dialog opens.
+    pub fn can_save_audio(&self, id: &str) -> Result<(), String> {
+        if self.meetings.recording_id().as_deref() == Some(id) {
+            return Err("Stop the recording first.".into());
+        }
+        if !self.ctx.notes.has_audio(id) {
+            return Err("This meeting has no saved audio.".into());
+        }
+        if self.work.is_saving_audio(id) {
+            return Err("This meeting's audio is already being saved.".into());
+        }
+        Ok(())
+    }
+
+    pub fn save_audio(&self, id: &str, to: &std::path::Path, format: linflow_core::audio_export::Format) -> Result<(), String> {
+        self.can_save_audio(id)?;
+        self.work.save_audio(id, to, format)
     }
 
     pub fn note_markdown(&self, id: &str) -> Option<String> {

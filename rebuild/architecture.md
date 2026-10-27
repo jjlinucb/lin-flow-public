@@ -134,8 +134,10 @@ npx tauri build --bundles app` in `next/app` and signed with the "Lin Flow" iden
 Accessibility grant survives the next build. It opens `~/Library/Application Support/Lin Flow`,
 syncs as "John Macbook" and answers to Fn. On 2026-10-24 it became the Mac's only Lin Flow: built as "Lin
 Flow" (`mac-build.sh --install` puts it in `/Applications/Lin Flow.app`), the Swift app moved
-to the Trash with its login item removed, and the fleet's Mac job unloaded. Windows and CI build with no
-folder set, so they stay beside the C# app. `next/scripts/windows.ps1` installs CI's build there.
+to the Trash with its login item removed, and the fleet's Mac job unloaded. **Windows followed on
+2026-10-27:** CI's `windows-app` makes the same cut-over build, named Lin Flow on the `Lin Flow`
+folder, and each PC takes new builds with Update in Settings. `next/WINDOWS.md` has the Windows
+side and the rules both sides keep. CI's tests still build with no folder set.
 
 **The talk key.** `APP_FOLDER` in `core/src/paths.rs` decides it: while it is `Lin Flow Next`,
 `context::default_hotkey` gives Right Option (Right Alt on Windows), and from `Lin Flow` it

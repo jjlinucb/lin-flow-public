@@ -25,6 +25,8 @@ pub struct Sync {
     totals: Mutex<TotalsSync>,
     tx: Mutex<Sender<Msg>>,
     status: Mutex<String>,
+    /// The computers' names the last read found, so the log says when that set changes.
+    computers: Mutex<String>,
 }
 
 /// This computer's name, for a sync.env that does not give one.
@@ -35,7 +37,7 @@ pub fn device_name() -> String {
 impl Sync {
     pub fn start(ctx: Arc<Context>) -> Arc<Sync> {
         let (tx, rx) = mpsc::channel();
-        let s = Arc::new(Sync { ctx, totals: Mutex::new(TotalsSync::new()), tx: Mutex::new(tx), status: Mutex::new("Off: no sync.env in the data folder.".into()) });
+        let s = Arc::new(Sync { ctx, totals: Mutex::new(TotalsSync::new()), tx: Mutex::new(tx), status: Mutex::new("Off: no sync.env in the data folder.".into()), computers: Mutex::new(String::new()) });
         let me = s.clone();
         std::thread::Builder::new()
             .name("linflow.sync".into())
@@ -99,6 +101,17 @@ impl Sync {
             log::info!("{line}");
         }
         self.report(&config);
+        // The window read its totals when the push above changed the history, before this read
+        // came back, so it showed this computer alone until the next dictation (2026-10-27).
+        if let Some(c) = self.combined() {
+            let names = c.devices.iter().map(|d| d.device.as_str()).collect::<Vec<_>>().join(", ");
+            let mut was = self.computers.lock().unwrap();
+            if *was != names {
+                log::info!("shared totals: read {} computer{}: {}", c.computers(), if c.computers() == 1 { "" } else { "s" }, c.breakdown());
+                *was = names;
+            }
+        }
+        self.ctx.emit(Event::HistoryChanged);
     }
 
     fn push_totals(&self) {

@@ -66,7 +66,7 @@ impl log::Log for FileLog {
 
 /// The log file's path.
 pub fn path() -> PathBuf {
-    linflow_core::paths::log_dir().join("lin-flow-next.log")
+    linflow_core::paths::log_dir().join("lin-flow.log")
 }
 
 /// Sends `log` lines to the file, and to stderr as well when `echo` is set. Once per process.
