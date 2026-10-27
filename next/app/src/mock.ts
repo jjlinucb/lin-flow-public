@@ -115,6 +115,10 @@ class Mock {
     switch (command) {
       case "status":
         return r(this.state);
+      case "check_update":
+        return r({ current: "caafe1d", latest: "b0168ec", published: "2026-10-27", newer: true, error: null });
+      case "install_update":
+        throw "The browser preview cannot update.";
       case "press": {
         this.setState("recording", "Recording…");
         const t0 = Date.now();
@@ -194,7 +198,8 @@ class Mock {
           dataDir: "~/Library/Application Support/Lin Flow Next",
           logPath: "~/Library/Logs/Lin Flow Next/lin-flow-next.log",
           trusted: true,
-          platform: "mac",
+          // ?platform=windows previews the Windows-only rows, such as Updates.
+          platform: new URLSearchParams(location.search).get("platform") === "windows" ? "windows" : "mac",
         } satisfies SettingsView);
       case "set_settings":
         Object.assign(settings, a.settings);

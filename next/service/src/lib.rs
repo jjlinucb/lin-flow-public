@@ -14,6 +14,7 @@ pub mod meeting;
 pub mod notes;
 pub mod readback;
 pub mod sync;
+pub mod update;
 
 pub use context::Context;
 pub use events::{DictationState, Event, NoteEvent, Sink, Toast, ToastAction};

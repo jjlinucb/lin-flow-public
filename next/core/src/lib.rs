@@ -19,4 +19,5 @@ pub mod repair;
 pub mod settings;
 pub mod sync;
 pub mod text;
+pub mod update;
 pub mod wav;

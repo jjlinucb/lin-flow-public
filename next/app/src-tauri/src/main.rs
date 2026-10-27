@@ -113,6 +113,8 @@ fn main() {
             save_audio,
             open_data_folder,
             open_log,
+            check_update,
+            install_update,
             toast_action,
             toast_layout,
             toast_hide,
@@ -608,6 +610,18 @@ fn open_data_folder(handle: AppHandle, app: State<'_, App>) {
 fn open_log(handle: AppHandle) {
     use tauri_plugin_opener::OpenerExt;
     let _ = handle.opener().open_path(linflow_service::logging::path().display().to_string(), None::<&str>);
+}
+
+#[tauri::command]
+async fn check_update(app: State<'_, App>) -> Cmd<linflow_service::update::UpdateView> {
+    Ok(app.svc.check_update())
+}
+
+/// Starts the swap, then quits so PowerShell can replace the files. It opens Lin Flow again.
+#[tauri::command]
+async fn install_update(handle: AppHandle, app: State<'_, App>) -> Cmd<()> {
+    app.svc.install_update()?;
+    shutdown(&handle);
 }
 
 // MARK: commands: notes
