@@ -115,7 +115,8 @@ foreach ($dir in $programs, $startup, [Environment]::GetFolderPath('Desktop')) {
 foreach ($dir in $programs, $startup) {
     $lnk = $shell.CreateShortcut((Join-Path $dir 'Lin Flow.lnk'))
     $lnk.TargetPath = $exe
-    $lnk.WorkingDirectory = $To
+    # Not $To: Update moves that folder, and a process started in it holds it.
+    $lnk.WorkingDirectory = $env:LOCALAPPDATA
     $lnk.Description = 'Lin Flow'
     $lnk.Save()
 }

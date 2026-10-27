@@ -143,7 +143,9 @@ jobs:
           Set-Content (Join-Path $pkg 'native/new.txt') 'new'
           $zip = Join-Path $t 'lin-flow-windows.zip'
           Compress-Archive (Join-Path $pkg '*') $zip
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-swap.ps1 -Zip $zip -Dest $dest -ProcId 0
+          # Started from inside the install folder, as the app is from its shortcuts.
+          $swap = (Resolve-Path scripts/update-swap.ps1).Path
+          Start-Process powershell -Wait -WorkingDirectory $dest -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$swap`"", '-Zip', "`"$zip`"", '-Dest', "`"$dest`"", '-ProcId', '0'
           if (-not (Test-Path (Join-Path $dest 'native/new.txt'))) { throw 'the new copy was not swapped in' }
           if (Test-Path (Join-Path $dest 'old.txt')) { throw 'the old copy is still there' }
           if (Test-Path "$dest.old") { throw 'the old folder was left behind' }

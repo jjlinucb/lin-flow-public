@@ -72,6 +72,8 @@ fn powershell(script: &std::path::Path) -> std::process::Command {
     let mut cmd = std::process::Command::new("powershell.exe");
     cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"])
         .arg(script)
+        // Not the install folder, which the swap moves: the app's own working directory is that.
+        .current_dir(std::env::temp_dir())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

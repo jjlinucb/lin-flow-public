@@ -7,6 +7,11 @@
 # lin-flow-next.exe still swaps in, and whichever one the folder holds is opened.
 param([string]$Zip, [string]$Dest, [int]$ProcId)
 $ErrorActionPreference = 'Stop'
+# The app starts this from its own folder (the shortcuts' Start in), and Windows won't move a folder
+# a process stands in: the first Update on MBC253 failed "in use" (2026-10-27). Stand in TEMP,
+# for the process itself as well as for PowerShell, whose Set-Location alone leaves the process there.
+Set-Location $env:TEMP
+[IO.Directory]::SetCurrentDirectory($env:TEMP)
 $log = Join-Path $env:TEMP 'lin-flow-update.log'
 function Say($t) { Add-Content $log "$(Get-Date -Format s) $t" }
 function App($dir) {
@@ -33,7 +38,11 @@ try {
     if (-not (App $new)) { throw 'the zip has no lin-flow.exe' }
     & (Join-Path $new 'linflow.exe') version | ForEach-Object { Say $_ }
     if ($LASTEXITCODE -ne 0) { throw 'the new copy did not start' }
-    Move-Item $Dest $old
+    # WebView2's helpers can hold the folder for a moment after the app quits.
+    for ($i = 1; ; $i++) {
+        try { Move-Item $Dest $old; break }
+        catch { if ($i -ge 10) { throw }; Say "install folder in use, retry $i"; Start-Sleep -Seconds 1 }
+    }
     Move-Item $new $Dest
     Remove-Item -Recurse -Force $old -ErrorAction SilentlyContinue
     Say "updated $Dest"
