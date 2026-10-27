@@ -25,7 +25,7 @@ pub struct Sync {
     totals: Mutex<TotalsSync>,
     tx: Mutex<Sender<Msg>>,
     status: Mutex<String>,
-    /// The computers the last read found, so the log says when that changes.
+    /// The computers' names the last read found, so the log says when that set changes.
     computers: Mutex<String>,
 }
 
@@ -104,11 +104,11 @@ impl Sync {
         // The window read its totals when the push above changed the history, before this read
         // came back, so it showed this computer alone until the next dictation (2026-10-27).
         if let Some(c) = self.combined() {
-            let now = c.breakdown();
+            let names = c.devices.iter().map(|d| d.device.as_str()).collect::<Vec<_>>().join(", ");
             let mut was = self.computers.lock().unwrap();
-            if *was != now {
-                log::info!("shared totals: read {} computer{}: {now}", c.computers(), if c.computers() == 1 { "" } else { "s" });
-                *was = now;
+            if *was != names {
+                log::info!("shared totals: read {} computer{}: {}", c.computers(), if c.computers() == 1 { "" } else { "s" }, c.breakdown());
+                *was = names;
             }
         }
         self.ctx.emit(Event::HistoryChanged);
