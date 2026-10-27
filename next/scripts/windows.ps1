@@ -37,7 +37,10 @@ if ($Source) {
     if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
     npm --prefix (Join-Path $root 'next\app') run build
     if ($LASTEXITCODE -ne 0) { throw 'The window did not build.' }
-    cargo build --release --manifest-path (Join-Path $root 'next\Cargo.toml') -p lin-flow-next -p linflow-cli
+    # tauri/custom-protocol packs the window's pages into the exe, as `tauri build` does.
+    cargo build --release --manifest-path (Join-Path $root 'next\Cargo.toml') -p lin-flow-next --features tauri/custom-protocol
+    if ($LASTEXITCODE -ne 0) { throw 'cargo build failed. Are the MSVC Build Tools installed?' }
+    cargo build --release --manifest-path (Join-Path $root 'next\Cargo.toml') -p linflow-cli
     if ($LASTEXITCODE -ne 0) { throw 'cargo build failed. Are the MSVC Build Tools installed?' }
     Copy-Item (Join-Path $root 'next\target\release\lin-flow-next.exe'), (Join-Path $root 'next\target\release\linflow.exe') $stage
     # whisper.cpp's DLLs, the same v1.9.1 release CI puts beside its build.
