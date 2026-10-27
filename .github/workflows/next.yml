@@ -192,8 +192,13 @@ jobs:
           key: app
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # tauri/custom-protocol is what `tauri build` turns on: it packs the window's pages into the
+      # exe. Without it a plain cargo build points the window at the dev server, localhost:1420, and
+      # every build from this job before 2026-10-27 opened to "localhost refused to connect".
       - name: Build the app
-        run: cargo build --release -p lin-flow-next -p linflow-cli
+        run: |
+          cargo build --release -p lin-flow-next --features tauri/custom-protocol
+          cargo build --release -p linflow-cli
 
       # One folder a Windows computer can run as it is, without Rust or MSVC: the app, the CLI and
       # whisper.cpp's DLLs in `native`, where the engine looks. `next/scripts/windows.ps1` fetches
@@ -211,6 +216,9 @@ jobs:
           Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'whisper') -Force
           Copy-Item (Join-Path $env:RUNNER_TEMP 'whisper/Release/*.dll') "$out/native"
           & "$out/linflow.exe" version
+          # The window's pages are inside the exe, or the build stops here before anyone gets it.
+          $exe = [IO.File]::ReadAllText((Resolve-Path "$out/lin-flow-next.exe"), [Text.Encoding]::GetEncoding(28591))
+          if ($exe -notmatch '/assets/main-[\w-]+\.js') { throw 'lin-flow-next.exe has no window pages in it; it would open localhost:1420.' }
           Get-ChildItem -Recurse $out | Select-Object FullName, Length | Format-Table -AutoSize
 
       - name: Keep the build
