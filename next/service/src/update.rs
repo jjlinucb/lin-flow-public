@@ -40,6 +40,10 @@ impl Service {
         if !cfg!(windows) {
             return Err("This Mac updates from next/scripts/mac-build.sh, not from here.".into());
         }
+        // Quitting closes an open meeting, and the recording is the product.
+        if self.meetings.recording_id().is_some() {
+            return Err("A meeting is recording. Stop it first, then update.".into());
+        }
         let release = self.latest_release()?;
         if !release.is_newer_than(update::current()) {
             return Err("This is already the newest build.".into());
