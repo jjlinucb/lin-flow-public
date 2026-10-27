@@ -56,23 +56,46 @@ impl Service {
         linflow_core::net::download(&release.zip_url, &zip, &mut |_| {}, &|| true)?;
         let script = temp.join("lin-flow-update.ps1");
         std::fs::write(&script, update::SWAP_SCRIPT).map_err(|e| e.to_string())?;
-        let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"])
-            .arg(&script)
-            .arg("-Zip")
-            .arg(&zip)
-            .arg("-Dest")
-            .arg(&dest)
-            .arg("-ProcId")
-            .arg(std::process::id().to_string());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            // No console window, and not a child the app's exit takes down with it.
-            cmd.creation_flags(0x0800_0000 | 0x0000_0008);
-        }
+        let mut cmd = powershell(&script);
+        cmd.arg("-Zip").arg(&zip).arg("-Dest").arg(&dest).arg("-ProcId").arg(std::process::id().to_string());
         cmd.spawn().map_err(|e| format!("Could not start the update: {e}"))?;
         log::info!("update: swapping to {} in {}; Lin Flow quits now", release.short(), dest.display());
         Ok(())
+    }
+}
+
+/// Windows PowerShell running `script`, with no window, as Update starts the swap. Only
+/// CREATE_NO_WINDOW: with DETACHED_PROCESS as well, PowerShell 5.1 exits 0 without running the
+/// script, so Lin Flow quit and never came back (MBC253, 2026-10-27, the first Update of 0d2d8ab).
+/// A child outlives the app on Windows without it. The test below starts it this same way.
+fn powershell(script: &std::path::Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File"])
+        .arg(script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn powershell_runs_the_swap_script() {
+        let dir = std::env::temp_dir().join(format!("linflow-update-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ran = dir.join("ran.txt");
+        let script = dir.join("swap.ps1");
+        std::fs::write(&script, format!("param([string]$Zip) Set-Content -LiteralPath '{}' -Value $Zip", ran.display())).unwrap();
+        let status = super::powershell(&script).arg("-Zip").arg("a.zip").status().unwrap();
+        let wrote = std::fs::read_to_string(&ran).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(status.success());
+        assert_eq!(wrote.trim(), "a.zip", "PowerShell started but never ran the script");
     }
 }

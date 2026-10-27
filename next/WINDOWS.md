@@ -46,6 +46,9 @@ carry on.
 - **Keep the exe name `lin-flow.exe`.** Shortcuts, the swap script and Startup point at it. The
   Cargo binary is still `lin-flow-next`, and the Windows package renames it, so the Mac is
   unaffected.
+- **Update starts PowerShell with a hidden window only** (`powershell()` in
+  `service/src/update.rs`). Adding DETACHED_PROCESS makes Windows PowerShell 5.1 exit without
+  running the swap, so Lin Flow quits and doesn't come back. A Windows test starts it the same way.
 - **Tray icons are per platform** (`TRAY_IDLE` and `TRAY_BUSY` in `app/src-tauri/src/main.rs`).
   A new Mac tray glyph doesn't change Windows, and the reverse.
 - Mac-only and Windows-only code stays behind `cfg`. Anything shared runs on both, so CI's
