@@ -4,10 +4,11 @@
 //! It is off unless `command.json` sits in the data folder:
 //!
 //! ```json
-//! {"word": "Zap", "run": ["/usr/bin/env", "python3", "-m", "zap", "do"], "cwd": "/some/folder", "env": {"KEY": "value"}}
+//! {"word": "Zap", "run": ["/opt/homebrew/bin/python3.11", "-m", "zap", "do"], "cwd": "/some/folder", "env": {"KEY": "value"}}
 //! ```
 //!
-//! `cwd` and `env` are optional. The file is read on every take, so a change needs no restart.
+//! `cwd` and `env` are optional. Give `run` a full path: an app started at login has a short PATH.
+//! The file is read on every take, so a change needs no restart.
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -48,10 +49,17 @@ impl Hook {
         if let Some(dir) = &self.cwd {
             c.current_dir(dir);
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
         let mut child = c.spawn()?;
-        // Reap it when it ends so it never lingers as a zombie.
-        std::thread::spawn(move || {
-            let _ = child.wait();
+        // Reap it when it ends so it never lingers as a zombie, and log a failure.
+        std::thread::spawn(move || match child.wait() {
+            Ok(status) if !status.success() => log::warn!("command: the program ended with {status}"),
+            Err(e) => log::warn!("command: {e}"),
+            Ok(_) => {}
         });
         Ok(())
     }
@@ -68,7 +76,10 @@ pub fn spoken_command(text: &str, word: &str) -> Option<String> {
     for _ in 0..2 {
         let (first, after) = split_word(rest);
         let got = letters(first);
-        if got == want || (got.len() == want.len() + 1 && got.starts_with(&want) && got.ends_with(&want[want.len() - 1..])) {
+        let doubled = got.chars().count() == want.chars().count() + 1
+            && got.starts_with(&want)
+            && got.chars().last() == want.chars().last();
+        if got == want || doubled {
             let command = after.trim_start_matches(|c: char| c.is_whitespace() || ",.:;!?-".contains(c)).trim_end();
             return (!command.is_empty()).then(|| command.to_string());
         }
@@ -111,6 +122,7 @@ mod tests {
         assert_eq!(spoken_command("Hey team, Zap is down", "Zap"), None);
         assert_eq!(spoken_command("Zap.", "Zap"), None, "the word alone is not a command");
         assert_eq!(spoken_command("Zap open it", ""), None);
+        assert_eq!(spoken_command("Caféé open it", "Café").as_deref(), Some("open it"), "letters, not bytes");
     }
 
     #[test]
