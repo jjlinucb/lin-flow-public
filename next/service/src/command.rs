@@ -85,7 +85,8 @@ impl Hook {
             if ok && !last.is_empty() {
                 show(&last, Progress::Done);
             } else if !ok {
-                show(if last.is_empty() { "It stopped with an error." } else { &last }, Progress::Failed);
+                let line = if last.is_empty() { "It stopped with an error.".to_string() } else { format!("{last} Then it stopped with an error.") };
+                show(&line, Progress::Failed);
             }
         });
         Ok(())
@@ -169,7 +170,7 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             hook.start(code, move |line, p| tx.send((line.to_string(), p)).unwrap()).unwrap();
             let got: Vec<_> = rx.iter().collect();
-            assert_eq!(got, vec![("one".into(), Progress::Working), ("two".into(), Progress::Working), ("two".into(), last)]);
+            assert_eq!(got, vec![("one".into(), Progress::Working), ("two".into(), Progress::Working), (if last == Progress::Done { "two".into() } else { "two Then it stopped with an error.".into() }, last)]);
         }
     }
 
