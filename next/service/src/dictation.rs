@@ -5,6 +5,7 @@
 //! talk key's own (it only hands the press on), the audio thread (opens and closes the
 //! microphone, in order), and the work thread (the model, the cleanup, the paste, the history).
 
+use crate::command;
 use crate::context::Context;
 use crate::engine::{self, EngineSlot};
 use crate::events::{DictationState, Event, Toast, ToastAction};
@@ -394,7 +395,17 @@ impl Dictation {
             return;
         }
         let to_paste = if settings.trailing_space && !text.ends_with('\n') { format!("{text} ") } else { text.clone() };
-        if std::env::var_os("LINFLOW_NO_PASTE").is_some() {
+        let hook = command::Hook::load(&self.ctx.data_dir);
+        let spoken = hook.as_ref().and_then(|h| command::spoken_command(&text, &h.word).map(|c| (h, c)));
+        if let Some((hook, said)) = spoken {
+            match hook.start(&said) {
+                Ok(()) => log::info!("command: handed off \"{said}\""),
+                Err(e) => {
+                    log::error!("command: could not start {}: {e}", hook.run[0]);
+                    self.ctx.sound(Sound::Error);
+                }
+            }
+        } else if std::env::var_os("LINFLOW_NO_PASTE").is_some() {
             log::info!("LINFLOW_NO_PASTE set; not pasting: {to_paste}");
         } else {
             linflow_platform::paste(&to_paste, RESTORE_AFTER);

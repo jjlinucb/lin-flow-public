@@ -3,6 +3,7 @@
 //! Tauri app, or a test) passes a `Sink` for events and calls the methods below; every method
 //! returns quickly, and anything slow runs on a thread of its own.
 
+pub mod command;
 pub mod context;
 pub mod detect;
 pub mod dictation;
