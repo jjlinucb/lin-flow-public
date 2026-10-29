@@ -12,6 +12,7 @@
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -41,11 +42,13 @@ impl Hook {
         }
     }
 
-    /// Starts the program with the command as its last argument and returns at once.
-    pub fn start(&self, command: &str) -> std::io::Result<()> {
+    /// Starts the program with the command as its last argument and returns at once. Each line
+    /// the program prints is passed to `show` as it comes, so John sees each step. When the
+    /// program ends, `show` gets its last line again with `Done`, or `Failed` if it exited badly.
+    pub fn start(&self, command: &str, show: impl Fn(&str, Progress) + Send + 'static) -> std::io::Result<()> {
         let mut c = Command::new(&self.run[0]);
         c.args(&self.run[1..]).arg(command).envs(&self.env);
-        c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(dir) = &self.cwd {
             c.current_dir(dir);
         }
@@ -55,14 +58,46 @@ impl Hook {
             c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
         let mut child = c.spawn()?;
-        // Reap it when it ends so it never lingers as a zombie, and log a failure.
-        std::thread::spawn(move || match child.wait() {
-            Ok(status) if !status.success() => log::warn!("command: the program ended with {status}"),
-            Err(e) => log::warn!("command: {e}"),
-            Ok(_) => {}
+        let out = child.stdout.take();
+        // Read its lines, then reap it so it never lingers as a zombie, and log a failure.
+        std::thread::spawn(move || {
+            let mut last = String::new();
+            if let Some(out) = out {
+                for line in BufReader::new(out).lines().map_while(Result::ok) {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        show(line, Progress::Working);
+                        last = line.to_string();
+                    }
+                }
+            }
+            let ok = match child.wait() {
+                Ok(status) if !status.success() => {
+                    log::warn!("command: the program ended with {status}");
+                    false
+                }
+                Err(e) => {
+                    log::warn!("command: {e}");
+                    false
+                }
+                Ok(_) => true,
+            };
+            if ok && !last.is_empty() {
+                show(&last, Progress::Done);
+            } else if !ok {
+                show(if last.is_empty() { "It stopped with an error." } else { &last }, Progress::Failed);
+            }
         });
         Ok(())
     }
+}
+
+/// Where a command is when `Hook::start` shows a line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Progress {
+    Working,
+    Done,
+    Failed,
 }
 
 /// What follows the wake word, or None when the take does not start with it. "Hey" or "OK" may
@@ -123,6 +158,19 @@ mod tests {
         assert_eq!(spoken_command("Zap.", "Zap"), None, "the word alone is not a command");
         assert_eq!(spoken_command("Zap open it", ""), None);
         assert_eq!(spoken_command("Caféé open it", "Café").as_deref(), Some("open it"), "letters, not bytes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn each_printed_line_is_shown_then_done() {
+        let hook = Hook { word: "Zap".into(), run: vec!["/bin/sh".into(), "-c".into(), "echo one; echo; echo two; exit $0".into()],
+                          cwd: None, env: BTreeMap::new() };
+        for (code, last) in [("0", Progress::Done), ("3", Progress::Failed)] {
+            let (tx, rx) = std::sync::mpsc::channel();
+            hook.start(code, move |line, p| tx.send((line.to_string(), p)).unwrap()).unwrap();
+            let got: Vec<_> = rx.iter().collect();
+            assert_eq!(got, vec![("one".into(), Progress::Working), ("two".into(), Progress::Working), ("two".into(), last)]);
+        }
     }
 
     #[test]

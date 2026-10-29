@@ -398,7 +398,20 @@ impl Dictation {
         let hook = command::Hook::load(&self.ctx.data_dir);
         let spoken = hook.as_ref().and_then(|h| command::spoken_command(&text, &h.word).map(|c| (h, c)));
         if let Some((hook, said)) = spoken {
-            match hook.start(&said) {
+            // One card above the pill per command, titled with what was heard so a mishearing
+            // shows, and updated in place as each step runs: toasts with one title replace each other.
+            let title = format!("{}: {}", hook.word, said.chars().take(60).collect::<String>());
+            self.ctx.toast(Toast::new(&title, "Starting…").seconds(60.0));
+            let ctx = self.ctx.clone();
+            let show = move |line: &str, progress: command::Progress| {
+                let toast = Toast::new(&title, line);
+                ctx.toast(match progress {
+                    command::Progress::Working => toast.seconds(60.0),
+                    command::Progress::Done => toast.seconds(8.0),
+                    command::Progress::Failed => toast.warning().seconds(12.0),
+                });
+            };
+            match hook.start(&said, show) {
                 Ok(()) => log::info!("command: handed off \"{said}\""),
                 Err(e) => {
                     log::error!("command: could not start {}: {e}", hook.run[0]);
