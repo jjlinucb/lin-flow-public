@@ -7,7 +7,8 @@
 //! {"word": "Zap", "run": ["/opt/homebrew/bin/python3.11", "-m", "zap", "do"], "cwd": "/some/folder", "env": {"KEY": "value"}}
 //! ```
 //!
-//! `cwd` and `env` are optional. Give `run` a full path: an app started at login has a short PATH.
+//! `heard_as` lists what the engine writes when it mishears the word, such as `["ease app"]` for
+//! "Zap" through AirPods; each counts as the word. `cwd`, `env` and `heard_as` are optional. Give `run` a full path: an app started at login has a short PATH.
 //! The file is read on every take, so a change needs no restart.
 
 use serde::Deserialize;
@@ -26,6 +27,8 @@ pub struct Hook {
     pub cwd: Option<PathBuf>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub heard_as: Vec<String>,
 }
 
 impl Hook {
@@ -40,6 +43,11 @@ impl Hook {
                 None
             }
         }
+    }
+
+    /// What follows the word, or one of its mishearings, at the start of the take.
+    pub fn command_in(&self, text: &str) -> Option<String> {
+        spoken_command(text, &self.word).or_else(|| self.heard_as.iter().find_map(|p| after_phrase(text, p)))
     }
 
     /// Starts the program with the command as its last argument and returns at once. Each line
@@ -127,6 +135,37 @@ pub fn spoken_command(text: &str, word: &str) -> Option<String> {
     None
 }
 
+/// What follows `phrase` at the start of `text`, compared by letters word by word, after an
+/// optional "Hey" or "OK".
+fn after_phrase(text: &str, phrase: &str) -> Option<String> {
+    let want: Vec<String> = phrase.split_whitespace().map(letters).filter(|w| !w.is_empty()).collect();
+    if want.is_empty() {
+        return None;
+    }
+    let mut starts = vec![text.trim_start()];
+    let (first, after) = split_word(text.trim_start());
+    if matches!(letters(first).as_str(), "hey" | "ok" | "okay" | "hi") {
+        starts.push(after.trim_start_matches(|c: char| c.is_whitespace() || ",.".contains(c)));
+    }
+    for start in starts {
+        let mut rest = start;
+        let mut ok = true;
+        for w in &want {
+            let (got, after) = split_word(rest.trim_start());
+            if letters(got) != *w {
+                ok = false;
+                break;
+            }
+            rest = after;
+        }
+        if ok {
+            let command = rest.trim_start_matches(|c: char| c.is_whitespace() || ",.:;!?-".contains(c)).trim_end();
+            return (!command.is_empty()).then(|| command.to_string());
+        }
+    }
+    None
+}
+
 fn split_word(s: &str) -> (&str, &str) {
     match s.find(char::is_whitespace) {
         Some(i) => (&s[..i], &s[i..]),
@@ -152,6 +191,18 @@ mod tests {
     }
 
     #[test]
+    fn a_known_mishearing_counts_as_the_word() {
+        let hook = Hook { word: "Zap".into(), run: vec!["x".into()], cwd: None, env: BTreeMap::new(),
+                          heard_as: vec!["ease app".into(), "is app".into()] };
+        assert_eq!(hook.command_in("Ease app connect to my work laptop.").as_deref(), Some("connect to my work laptop."));
+        assert_eq!(hook.command_in("Hey, is app, open Notes").as_deref(), Some("open Notes"));
+        assert_eq!(hook.command_in("Zap, open Notes").as_deref(), Some("open Notes"));
+        assert_eq!(hook.command_in("Ease application of the rule"), None);
+        assert_eq!(hook.command_in("Please ease app pressure"), None);
+        assert_eq!(hook.command_in("Ease app."), None, "the phrase alone is not a command");
+    }
+
+    #[test]
     fn other_takes_are_dictation() {
         assert_eq!(spoken_command("The zap went through the wire.", "Zap"), None);
         assert_eq!(spoken_command("Zapping the bugs today", "Zap"), None);
@@ -165,7 +216,7 @@ mod tests {
     #[test]
     fn each_printed_line_is_shown_then_done() {
         let hook = Hook { word: "Zap".into(), run: vec!["/bin/sh".into(), "-c".into(), "echo one; echo; echo two; exit $0".into()],
-                          cwd: None, env: BTreeMap::new() };
+                          cwd: None, env: BTreeMap::new(), heard_as: vec![] };
         for (code, last) in [("0", Progress::Done), ("3", Progress::Failed)] {
             let (tx, rx) = std::sync::mpsc::channel();
             hook.start(code, move |line, p| tx.send((line.to_string(), p)).unwrap()).unwrap();
