@@ -14,6 +14,7 @@ use objc2::AnyThread;
 use objc2_app_kit::{NSPasteboard, NSPasteboardContentsOptions, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting};
 use objc2_foundation::{NSArray, NSData, NSString};
 use std::ffi::c_void;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 type CGEventRef = *mut c_void;
@@ -48,6 +49,11 @@ const PRIVATE_TYPES: [&str; 2] = ["org.nspasteboard.TransientType", "org.nspaste
 
 /// One clipboard item: each type it held, and its data.
 type Snapshot = Vec<Vec<(String, Vec<u8>)>>;
+
+/// John's clipboard still waiting to go back, and the change count the dictation left. A second
+/// dictation before the restore (easy inside a remote app's 3 s) takes this over instead of
+/// snapshotting the first dictation as if it were his.
+static PENDING: Mutex<Option<(isize, Arc<Snapshot>)>> = Mutex::new(None);
 
 fn snapshot(pb: &NSPasteboard) -> Snapshot {
     let Some(items) = pb.pasteboardItems() else { return vec![] };
@@ -136,8 +142,16 @@ pub fn paste(text: &str, how: Paste) {
         return;
     }
     let pb = NSPasteboard::generalPasteboard();
-    let snap = snapshot(&pb);
+    let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+    let snap = match pending.take() {
+        Some((left, snap)) if pb.changeCount() == left => snap,
+        _ => Arc::new(snapshot(&pb)),
+    };
     let ours = write_privately(text, &pb);
+    if !snap.is_empty() {
+        *pending = Some((ours, snap.clone()));
+    }
+    drop(pending);
     if !how.wait.is_zero() {
         std::thread::sleep(how.wait);
     }
@@ -152,9 +166,11 @@ pub fn paste(text: &str, how: Paste) {
     let restore_after = how.restore_after;
     std::thread::spawn(move || {
         std::thread::sleep(restore_after);
+        let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
         let pb = NSPasteboard::generalPasteboard();
         if pb.changeCount() == ours {
             restore(&pb, &snap);
+            *pending = None;
         }
     });
 }
