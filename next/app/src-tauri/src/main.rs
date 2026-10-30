@@ -87,6 +87,7 @@ fn main() {
             remove_term,
             add_rule,
             remove_rule,
+            edit_rule,
             accept_rule,
             dismiss_rule,
             settings_view,
@@ -613,8 +614,19 @@ fn remove_rule(app: State<'_, App>, from: String) -> Cmd<()> {
 }
 
 #[tauri::command]
-fn accept_rule(app: State<'_, App>, from: String, to: String) -> Cmd<()> {
-    app.svc.ctx.dictionary.accept(&from, &to).map_err(|e| e.to_string())
+fn edit_rule(app: State<'_, App>, original: String, from: String, to: String) -> Cmd<()> {
+    app.svc.ctx.dictionary.edit_rule(&original, &from, &to).map_err(|e| e.to_string())
+}
+
+/// `original` comes with a suggestion fixed in the window first: its left side as it was offered.
+#[tauri::command]
+fn accept_rule(app: State<'_, App>, from: String, to: String, original: Option<String>) -> Cmd<()> {
+    let d = &app.svc.ctx.dictionary;
+    match original {
+        Some(original) => d.accept_edited(&original, &from, &to),
+        None => d.accept(&from, &to),
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

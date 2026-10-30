@@ -161,16 +161,50 @@ impl Dictionary {
         self.save_rules(&rules)
     }
 
-    /// Accepts a suggestion into the corrections, and takes it off the waiting list.
+    /// Rewrites the correction whose left side is `original`, either side, in its place in the
+    /// file, so a learned one stays learned and keeps its spot. A rule that already had the new
+    /// left side gives way to the edited one. The sync sees the file change as it sees any other:
+    /// a new left side is the old entry deleted and a new one added.
+    pub fn edit_rule(&self, original: &str, from: &str, to: &str) -> std::io::Result<()> {
+        let (from, to) = (from.trim(), to.trim());
+        if from.is_empty() || to.is_empty() {
+            return Ok(());
+        }
+        let old = Replacement::new(original, "").id();
+        let new = Replacement::new(from, "").id();
+        let mut rules = self.rules();
+        let Some(at) = rules.iter().position(|r| r.id() == old) else {
+            return self.add_rule(from, to);
+        };
+        rules[at] = Replacement { from: from.to_string(), to: to.to_string(), learned: rules[at].learned };
+        let rules: Vec<Replacement> = rules.into_iter().enumerate().filter(|(i, r)| *i == at || r.id() != new).map(|(_, r)| r).collect();
+        self.save_rules(&rules)
+    }
+
+    /// Accepts a suggestion into the corrections, and takes it off the waiting list. A rule
+    /// already there for the same left side stays as it is.
     pub fn accept(&self, from: &str, to: &str) -> std::io::Result<()> {
-        let candidate = Replacement::learned(from, to);
+        self.take(from, Replacement::learned(from, to), false)
+    }
+
+    /// Accepts the suggestion waiting under `original` as fixed in the window to `from` → `to`.
+    /// Typed by hand, it replaces any correction with the same left side, as adding one does.
+    pub fn accept_edited(&self, original: &str, from: &str, to: &str) -> std::io::Result<()> {
+        let (from, to) = (from.trim(), to.trim());
+        if from.is_empty() || to.is_empty() {
+            return Ok(());
+        }
+        self.take(original, Replacement::learned(from, to), true)
+    }
+
+    fn take(&self, original: &str, candidate: Replacement, replace: bool) -> std::io::Result<()> {
         let rules = self.rules();
-        if !rules.iter().any(|r| r.id() == candidate.id()) {
-            let mut all = rules;
-            all.push(candidate.clone());
+        if replace || !rules.iter().any(|r| r.id() == candidate.id()) {
+            let mut all: Vec<Replacement> = rules.into_iter().filter(|r| r.id() != candidate.id()).collect();
+            all.push(candidate);
             self.save_rules(&all)?;
         }
-        self.dismiss(from)
+        self.dismiss(original)
     }
 
     pub fn dismiss(&self, from: &str) -> std::io::Result<()> {
@@ -257,6 +291,49 @@ mod tests {
         d.accept("Thursday", "Friday").unwrap();
         assert!(d.pending().is_empty());
         assert!(d.rules().iter().any(|r| r.from == "Thursday"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_edited_correction_keeps_its_place_and_its_learned_mark() {
+        let dir = scratch("edit");
+        let d = Dictionary::new(&dir, Arc::new(|_| {}));
+        d.add_rule("wisper flow", "Wispr Flow").unwrap();
+        d.accept("Jaz Mint", "Jazmint").unwrap();
+        d.add_rule("cloud code", "Claude Code").unwrap();
+        // The right side only.
+        d.edit_rule("jaz mint", "Jaz Mint", "Jasmine").unwrap();
+        assert_eq!(d.rules()[1], Replacement::learned("Jaz Mint", "Jasmine"));
+        // The left side too: the old one is gone, the new one in its place.
+        d.edit_rule("Jaz Mint", "Jazz Mint", " Jasmine T ").unwrap();
+        assert_eq!(d.rules().iter().map(|r| r.from.as_str()).collect::<Vec<_>>(), ["wisper flow", "Jazz Mint", "cloud code"]);
+        assert_eq!(d.rules()[1], Replacement::learned("Jazz Mint", "Jasmine T"));
+        assert_eq!(d.clean("ask jazz mint", &Settings::default()), "Ask Jasmine T.");
+        assert_eq!(d.clean("ask jaz mint", &Settings::default()), "Ask jaz mint.");
+        // Onto another rule's left side: the edited one wins and there is one rule for it.
+        d.edit_rule("Jazz Mint", "Cloud Code", "Claude Code!").unwrap();
+        assert_eq!(d.rules(), vec![Replacement::new("wisper flow", "Wispr Flow"), Replacement::learned("Cloud Code", "Claude Code!")]);
+        // An empty side changes nothing.
+        d.edit_rule("wisper flow", "wisper flow", "  ").unwrap();
+        assert_eq!(d.rules()[0].to, "Wispr Flow");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_suggestion_can_be_fixed_before_it_is_added() {
+        let dir = scratch("accept-edited");
+        let d = Dictionary::new(&dir, Arc::new(|_| {}));
+        d.learn("See you Thursday.", "See you Friday.", LearnMode::Auto);
+        assert_eq!(d.pending().len(), 1);
+        d.accept_edited("Thursday", "thursday", "Saturday").unwrap();
+        assert!(d.pending().is_empty(), "the original suggestion is off the list");
+        assert_eq!(d.rules(), vec![Replacement::learned("thursday", "Saturday")]);
+        // An edited suggestion replaces the rule it lands on; an untouched one never does.
+        d.add_rule("Monday", "Mon").unwrap();
+        d.accept("Monday", "Tuesday").unwrap();
+        assert!(d.rules().iter().any(|r| r.from == "Monday" && r.to == "Mon"));
+        d.accept_edited("Monday", "Monday", "Wednesday").unwrap();
+        assert_eq!(d.rules().iter().filter(|r| r.id() == "monday").map(|r| r.to.as_str()).collect::<Vec<_>>(), ["Wednesday"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

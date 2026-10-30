@@ -194,9 +194,13 @@ class Mock {
         dictionary.rules = dictionary.rules.filter((x) => x.from !== a.from);
         this.emit({ type: "dictionaryChanged" });
         return r(undefined);
+      case "edit_rule":
+        dictionary.rules = dictionary.rules.map((x) => (x.from === a.original ? { ...x, from: a.from, to: a.to } : x));
+        this.emit({ type: "dictionaryChanged" });
+        return r(undefined);
       case "accept_rule":
         dictionary.rules.push({ from: a.from, to: a.to, learned: true });
-        dictionary.pending = dictionary.pending.filter((x) => x.from !== a.from);
+        dictionary.pending = dictionary.pending.filter((x) => x.from !== (a.original ?? a.from));
         this.emit({ type: "dictionaryChanged" });
         return r(undefined);
       case "dismiss_rule":
