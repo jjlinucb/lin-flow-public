@@ -38,6 +38,8 @@ struct Job {
     target: Option<App>,
     device: Option<String>,
     first_audio: Option<f64>,
+    /// The command key was held with the talk key, at the press or the release.
+    command_key: bool,
 }
 
 pub struct Dictation {
@@ -150,6 +152,8 @@ impl Dictation {
 
     fn audio_loop(self: Arc<Self>, rx: Receiver<Cmd>, work: Sender<Job>) {
         let mut pressed = false;
+        let mut command_key = false;
+        let key_held = |d: &Dictation| command::Hook::load(&d.ctx.data_dir).is_some_and(|h| h.key_held());
         let mut mic: Option<Microphone> = None;
         let mut mic_opened_at = Instant::now();
         let mut key_at = Instant::now();
@@ -186,6 +190,7 @@ impl Dictation {
                     }
                     pressed = true;
                     key_at = at;
+                    command_key = key_held(&self);
                     // The previous dictation's readback keeps running: two dictations into the
                     // same box inside 15 s is normal, and a fix to the first must still count.
                     target = linflow_platform::frontmost_app();
@@ -223,6 +228,7 @@ impl Dictation {
                         continue;
                     }
                     pressed = false;
+                    command_key |= key_held(&self);
                     let (device, first_audio) = match mic.take() {
                         Some(m) => {
                             let device = Some(m.device.clone());
@@ -271,7 +277,7 @@ impl Dictation {
                         *queued += 1;
                         self.set_state(DictationState::Transcribing);
                     }
-                    let _ = work.send(Job { samples, target: target.take(), device, first_audio });
+                    let _ = work.send(Job { samples, target: target.take(), device, first_audio, command_key });
                 }
             }
         }
@@ -396,7 +402,7 @@ impl Dictation {
         }
         let to_paste = if settings.trailing_space && !text.ends_with('\n') { format!("{text} ") } else { text.clone() };
         let hook = command::Hook::load(&self.ctx.data_dir);
-        let spoken = hook.as_ref().and_then(|h| h.command_in(&text).map(|c| (h, c)));
+        let spoken = hook.as_ref().and_then(|h| h.command(&text, job.command_key).map(|c| (h, c)));
         if let Some((hook, said)) = spoken {
             // A step can take a while (a question to Claude): the card stays until the next line.
             const WORKING: f64 = 180.0;
