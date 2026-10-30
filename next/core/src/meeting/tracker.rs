@@ -255,7 +255,9 @@ fn owner(who: &str, source: &str) -> String {
     if lower == "you" || lower == "john" || lower == "i" || lower == "me" {
         return "You".into();
     }
-    if running::grounded(&format!("Ask {w}"), source, &[]) {
+    // A name: capitalized, and said in the call.
+    let capitalized = w.chars().next().is_some_and(|c| c.is_uppercase());
+    if capitalized && running::grounded(&format!("Ask {w}"), source, &[]) {
         return w.to_string();
     }
     "Others".into()
@@ -296,11 +298,12 @@ mod tests {
 
     #[test]
     fn what_the_call_never_said_is_dropped() {
-        let answer = r#"{"questions":["Can Marcus ship it by Monday? :: Say yes.","How are you?"],"actions":["Dana :: send the test logs","You :: review the budget for 2027"]}"#;
+        let answer = r#"{"questions":["Can Marcus ship it by Monday? :: Say yes.","How are you?"],"actions":["Dana :: send the test logs","You :: review the budget for 2027","the vendor :: send the test logs after this call"]}"#;
         let mut m = Scripted(vec![answer.into()], vec![]);
         let items = pass(&mut m, "", STRETCH, &Tracker::default(), "Standup", 0.0).unwrap();
         assert_eq!(items.len(), 1, "{items:?}");
         assert_eq!(items[0].detail, "Others", "an invented owner becomes Others, the promise stays");
+        assert!(owner("the vendor", STRETCH) == "Others" && owner("Priya", STRETCH) == "Priya" && owner("I", STRETCH) == "You");
     }
 
     #[test]

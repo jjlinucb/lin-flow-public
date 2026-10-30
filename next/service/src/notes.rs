@@ -302,10 +302,16 @@ impl NoteWork {
                     let title = me.ctx.notes.load(&id).map(|n| n.title).unwrap_or_else(|| "Meeting".into());
                     let notes = me.ctx.notes.notes_text(&id);
                     let mut turns = me.ctx.notes.questions(&id);
-                    let room = model.window_characters().saturating_sub(llm::questions::prompt(&title, "", &notes, &turns, &q).len());
-                    let transcript = summary::tail(&transcript_text(&me.ctx.notes.transcript(&id), true), room.max(1_500));
-                    let prompt = llm::questions::prompt(&title, &transcript, &notes, &turns, &q);
-                    let request = summary::Request { instructions: llm::questions::SYSTEM.into(), prompt, max_tokens: 400, lists: vec![], greedy: false };
+                    // The local model's window holds the newest transcript and the latest
+                    // questions; older questions drop out before the transcript gets short.
+                    let mut earlier = &turns[turns.len().saturating_sub(3)..];
+                    let room = |earlier: &[QuestionTurn]| model.window_characters().saturating_sub(llm::questions::prompt(&title, "", &notes, earlier, &q).len());
+                    while !earlier.is_empty() && room(earlier) < 2_000 {
+                        earlier = &earlier[1..];
+                    }
+                    let transcript = summary::tail(&transcript_text(&me.ctx.notes.transcript(&id), true), room(earlier).max(1_000));
+                    let prompt = llm::questions::prompt(&title, &transcript, &notes, earlier, &q);
+                    let request = summary::Request { instructions: llm::questions::SYSTEM.into(), prompt, max_tokens: 800, lists: vec![], greedy: false };
                     match model.complete(&request) {
                         Ok(answer) => {
                             turns.push(QuestionTurn { question: q.clone(), answer, asked_at: linflow_core::notes::now() });

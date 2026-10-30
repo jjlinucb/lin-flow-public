@@ -256,8 +256,9 @@ const TRACKER_WIDTH: f64 = 320.0;
 const TRACKER_HEIGHT: f64 = 460.0;
 
 /// The call tracker, at the right edge of the screen near the top, where a call's own window
-/// rarely puts anything. Content protection leaves it out of screen shares and recordings: the
-/// Mac's sharingType none, Windows' display affinity.
+/// rarely puts anything. Content protection asks to leave it out of screen shares: the Mac's
+/// sharingType none, Windows' display affinity. Newer Mac capture (ScreenCaptureKit, which Zoom
+/// and Teams use) may not honor it, so hide the panel or share one window when it matters.
 fn build_tracker(app: &AppHandle) -> tauri::Result<()> {
     let w = floating(app, "tracker", "tracker.html", TRACKER_WIDTH, TRACKER_HEIGHT)?;
     let _ = w.set_content_protected(true);
@@ -491,6 +492,7 @@ fn pill_menu(handle: AppHandle, item: String) {
                 navigate(&handle, &format!("note:{id}"));
             }
         }
+        "tracker" => set_tracker_visible(&handle, true),
         other => navigate(&handle, other),
     }
 }

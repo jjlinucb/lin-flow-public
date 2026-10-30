@@ -111,7 +111,6 @@ function App() {
             case "summary":
             case "answer":
             case "runningNotes":
-            case "tracker":
               setLive((l) => ({ ...l, version: l.version + 1 }));
               break;
             case "error":

@@ -94,6 +94,7 @@ function Pill() {
           {[
             ["dictation", "Dictations"],
             ["note", "Meeting note"],
+            ["tracker", "Call tracker"],
             ["dictionary", "Dictionary"],
             ["settings", "Settings"],
           ].map(([item, text]) => (

@@ -779,19 +779,29 @@ fn running_notes_loop(ctx: Arc<Context>, id: String, stop: Arc<AtomicBool>) {
 }
 
 /// The call tracker: every few seconds, whether enough new transcript has come in for a pass;
-/// at the end, one last pass over what is left. Off with a reason when there is no local model,
-/// since running notes already say so.
+/// at the end, passes until what is left is read. Without a local model it says so to the
+/// panel and stops.
 fn tracker_loop(ctx: Arc<Context>, id: String, stop: Arc<AtomicBool>) {
-    let Ok(mut model) = notes::running_notes_model(&ctx) else { return };
+    let mut model = match notes::running_notes_model(&ctx) {
+        Ok(m) => m,
+        Err(why) => {
+            log::info!("call tracker unavailable: {why}");
+            ctx.emit(Event::Note { event: NoteEvent::RunningNotesOff { id: id.clone(), why } });
+            return;
+        }
+    };
     log::info!("call tracker with {}", model.name());
     // A note recorded a second time: what was already said was tracked the first time.
     let mut read: HashSet<String> = ctx.notes.transcript(&id).into_iter().map(|s| s.id).collect();
     let mut last_pass = Instant::now();
     let title = || ctx.notes.load(&id).map(|n| n.title).unwrap_or_else(|| "Meeting".into());
+    let mut final_passes = 0;
     loop {
         let last = stop.load(Ordering::Relaxed);
         if !last {
             std::thread::sleep(Duration::from_secs(5));
+        } else {
+            final_passes += 1;
         }
         let mut working = ctx.notes.tracker(&id);
         let started = Instant::now();
@@ -809,14 +819,18 @@ fn tracker_loop(ctx: Arc<Context>, id: String, stop: Arc<AtomicBool>) {
                     }
                 }
             }
+            Ok(None) if last => return,
             Ok(None) => {}
             Err(e) => {
                 // The stretch stays unread; the next pass takes it with what follows.
                 log::error!("call tracker: {e}");
                 last_pass = Instant::now();
+                if last {
+                    return;
+                }
             }
         }
-        if last {
+        if last && final_passes >= 6 {
             return;
         }
     }
