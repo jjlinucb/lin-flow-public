@@ -37,6 +37,23 @@ export interface Replacement {
   learned: boolean;
 }
 
+/** A correction or suggestion opened for editing, under the left side it had when opened. */
+export interface RuleEdit {
+  kind: "rule" | "pending";
+  original: string;
+  from: string;
+  to: string;
+}
+
+/** The command saving an edit sends, or null while either side is blank. A suggestion is added
+ * as edited; a correction is rewritten in its place. */
+export function saveEdit(e: RuleEdit): [string, Record<string, string>] | null {
+  const from = e.from.trim();
+  const to = e.to.trim();
+  if (!from || !to) return null;
+  return [e.kind === "pending" ? "accept_rule" : "edit_rule", { original: e.original, from, to }];
+}
+
 export interface Dictionary {
   terms: string[];
   rules: Replacement[];
