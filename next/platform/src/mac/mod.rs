@@ -58,3 +58,23 @@ impl FieldReader {
         ax::TIMEOUTS.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventSourceFlagsState(state: i32) -> u64;
+}
+
+/// Whether a modifier is held right now, on either side: "shift", "control", "option" or
+/// "command". Read from the whole session, so it works from any thread at any moment.
+pub fn modifier_held(name: &str) -> bool {
+    let mask = match name {
+        "shift" => 0x0002_0000,
+        "control" => 0x0004_0000,
+        "option" | "alt" => 0x0008_0000,
+        "command" => 0x0010_0000,
+        _ => return false,
+    };
+    // 0 is kCGEventSourceStateCombinedSessionState.
+    let flags = unsafe { CGEventSourceFlagsState(0) };
+    flags & mask != 0
+}

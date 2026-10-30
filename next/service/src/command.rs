@@ -8,7 +8,9 @@
 //! ```
 //!
 //! `heard_as` lists what the engine writes when it mishears the word, such as `["ease app"]` for
-//! "Zap" through AirPods; each counts as the word. `cwd`, `env` and `heard_as` are optional. Give `run` a full path: an app started at login has a short PATH.
+//! "Zap" through AirPods; each counts as the word. `key` names a modifier ("option", "control",
+//! "shift" or "command") that, held with the talk key, makes the whole take a command with no
+//! word needed, since a word can be misheard. `cwd`, `env`, `heard_as` and `key` are optional. Give `run` a full path: an app started at login has a short PATH.
 //! The file is read on every take, so a change needs no restart.
 
 use serde::Deserialize;
@@ -29,6 +31,8 @@ pub struct Hook {
     pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub heard_as: Vec<String>,
+    #[serde(default)]
+    pub key: Option<String>,
 }
 
 impl Hook {
@@ -43,6 +47,21 @@ impl Hook {
                 None
             }
         }
+    }
+
+    /// Whether the command key is held right now.
+    pub fn key_held(&self) -> bool {
+        self.key.as_deref().is_some_and(linflow_platform::modifier_held)
+    }
+
+    /// The command in a take: all of it when the command key was held, minus the word if it was
+    /// said anyway, else what follows the word.
+    pub fn command(&self, text: &str, key_held: bool) -> Option<String> {
+        if key_held {
+            let whole = text.trim().trim_matches(|c: char| ",.:;!?-".contains(c)).trim();
+            return self.command_in(text).or_else(|| (!whole.is_empty()).then(|| whole.to_string()));
+        }
+        self.command_in(text)
     }
 
     /// What follows the word, or one of its mishearings, at the start of the take.
@@ -193,13 +212,23 @@ mod tests {
     #[test]
     fn a_known_mishearing_counts_as_the_word() {
         let hook = Hook { word: "Zap".into(), run: vec!["x".into()], cwd: None, env: BTreeMap::new(),
-                          heard_as: vec!["ease app".into(), "is app".into()] };
+                          heard_as: vec!["ease app".into(), "is app".into()], key: None };
         assert_eq!(hook.command_in("Ease app connect to my work laptop.").as_deref(), Some("connect to my work laptop."));
         assert_eq!(hook.command_in("Hey, is app, open Notes").as_deref(), Some("open Notes"));
         assert_eq!(hook.command_in("Zap, open Notes").as_deref(), Some("open Notes"));
         assert_eq!(hook.command_in("Ease application of the rule"), None);
         assert_eq!(hook.command_in("Please ease app pressure"), None);
         assert_eq!(hook.command_in("Ease app."), None, "the phrase alone is not a command");
+    }
+
+    #[test]
+    fn with_the_key_held_the_whole_take_is_the_command() {
+        let hook = Hook { word: "Zapdos".into(), run: vec!["x".into()], cwd: None, env: BTreeMap::new(),
+                          heard_as: vec![], key: Some("option".into()) };
+        assert_eq!(hook.command("Open Microsoft Word.", true).as_deref(), Some("Open Microsoft Word"));
+        assert_eq!(hook.command("Hey Zapdos, open Word", true).as_deref(), Some("open Word"), "the word is dropped");
+        assert_eq!(hook.command("Open Microsoft Word.", false), None, "without the key it is dictation");
+        assert_eq!(hook.command(" . ", true), None);
     }
 
     #[test]
@@ -216,7 +245,7 @@ mod tests {
     #[test]
     fn each_printed_line_is_shown_then_done() {
         let hook = Hook { word: "Zap".into(), run: vec!["/bin/sh".into(), "-c".into(), "echo one; echo; echo two; exit $0".into()],
-                          cwd: None, env: BTreeMap::new(), heard_as: vec![] };
+                          cwd: None, env: BTreeMap::new(), heard_as: vec![], key: None };
         for (code, last) in [("0", Progress::Done), ("3", Progress::Failed)] {
             let (tx, rx) = std::sync::mpsc::channel();
             hook.start(code, move |line, p| tx.send((line.to_string(), p)).unwrap()).unwrap();
