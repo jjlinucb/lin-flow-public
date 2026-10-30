@@ -50,6 +50,8 @@ pub struct Settings {
     pub audio_retention_days: u32,
     pub keep_meeting_audio: bool,
     pub running_notes: bool,
+    /// The call tracker: a panel beside the call with questions put to John and promises made.
+    pub call_tracker: bool,
     pub transcribe_after_meeting: bool,
     pub meeting_uses_microphone: bool,
     pub meeting_uses_system_audio: bool,
@@ -89,6 +91,7 @@ impl Default for Settings {
             audio_retention_days: 30,
             keep_meeting_audio: true,
             running_notes: true,
+            call_tracker: true,
             transcribe_after_meeting: true,
             meeting_uses_microphone: true,
             meeting_uses_system_audio: true,

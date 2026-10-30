@@ -8,6 +8,7 @@ use crate::events::{Event, NoteEvent, Toast, ToastAction};
 use linflow_core::llm::{self, Ollama};
 use linflow_core::meeting::detect::Recap;
 use linflow_core::meeting::summary::{self, Kind, NoteModel};
+use linflow_core::meeting::tracker::Tracker;
 use linflow_core::audio_export::{self, Format};
 use linflow_core::notes::{follow_title, transcript_text, AudioExportRecord, MeetingNote, QuestionTurn, TranscriptSegment};
 use std::collections::{HashSet, VecDeque};
@@ -379,6 +380,26 @@ impl NoteWork {
     }
 }
 
+/// One writer at a time for `tracker.json`: the tracker's pass and John's ticks both write it,
+/// and a pass takes seconds, so each reads the file again under this lock before it writes.
+static TRACKER: Mutex<()> = Mutex::new(());
+
+/// Changes a note's tracker, saves it and tells the window.
+pub fn update_tracker(ctx: &Context, id: &str, change: impl FnOnce(&mut Tracker) -> bool) -> Result<Tracker, String> {
+    let _one = TRACKER.lock().unwrap_or_else(|e| e.into_inner());
+    let mut t = ctx.notes.tracker(id);
+    if change(&mut t) {
+        ctx.notes.save_tracker(id, &t).map_err(|e| e.to_string())?;
+        ctx.emit(Event::Note { event: NoteEvent::Tracker { id: id.into(), tracker: t.clone() } });
+    }
+    Ok(t)
+}
+
+/// Ticks a tracker item off, or back on.
+pub fn toggle_tracker(ctx: &Context, id: &str, item: &str) -> Result<Tracker, String> {
+    update_tracker(ctx, id, |t| t.toggle(item))
+}
+
 /// Renames a note. An empty title keeps the old one.
 pub fn rename(ctx: &Context, id: &str, title: &str) -> Result<MeetingNote, String> {
     let mut note = ctx.notes.load(id).ok_or("That meeting is gone.")?;
@@ -468,6 +489,39 @@ mod tests {
         assert_eq!(pick_local(&old_default, Arc::new(Tags(r#"{"name":"qwen2.5:3b"},{"name":"qwen2.5:7b"}"#))).unwrap().model, "qwen2.5:7b", "the old default moves up");
         let chosen = linflow_core::settings::Settings { ollama_model: "llama3.2:3b".into(), ..s };
         assert!(pick_local(&chosen, Arc::new(Tags(r#"{"name":"qwen2.5:3b"}"#))).is_err(), "a model John chose is not swapped for another");
+    }
+
+    #[test]
+    fn tracker_ticks_and_passes_both_land() {
+        use linflow_core::meeting::tracker::{Item, Kind};
+        let dir = std::env::temp_dir().join(format!("linflow-tracker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let seen = Arc::new(Mutex::new(0));
+        let s2 = seen.clone();
+        let events: Sink = Arc::new(move |e| {
+            if matches!(e, Event::Note { event: NoteEvent::Tracker { .. } }) {
+                *s2.lock().unwrap() += 1;
+            }
+        });
+        let ctx = Context::new(dir.clone(), events);
+        let note = ctx.notes.create("Standup").unwrap();
+        let item = |text: &str| Item { id: String::new(), kind: Kind::Question, at: 1.0, text: text.into(), detail: "Say when.".into(), done: false };
+        update_tracker(&ctx, &note.id, |t| {
+            t.add(vec![item("Can it land by Friday?")]);
+            true
+        })
+        .unwrap();
+        toggle_tracker(&ctx, &note.id, "q-1").unwrap();
+        update_tracker(&ctx, &note.id, |t| {
+            t.add(vec![item("Who owns the demo?")]);
+            true
+        })
+        .unwrap();
+        let t = ctx.notes.tracker(&note.id);
+        assert_eq!(t.items.iter().map(|i| (i.id.as_str(), i.done)).collect::<Vec<_>>(), vec![("q-1", true), ("q-2", false)], "the tick survives the next pass");
+        assert!(toggle_tracker(&ctx, &note.id, "q-9").is_ok(), "an unknown item changes nothing");
+        assert_eq!(*seen.lock().unwrap(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

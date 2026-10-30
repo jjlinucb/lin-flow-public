@@ -22,6 +22,7 @@ use linflow_core::audio::{self, SAMPLE_RATE, SAMPLE_RATE_F};
 use linflow_core::meeting::detect::Recording as Observed;
 use linflow_core::meeting::live::{Cut, LiveSegmenter};
 use linflow_core::meeting::running;
+use linflow_core::meeting::tracker;
 use linflow_core::meeting::{OTHERS, YOU};
 use linflow_core::notes::{transcript_text, MeetingNote, TranscriptSegment};
 use linflow_core::wav::WavWriter;
@@ -149,6 +150,7 @@ struct Active {
     live: Arc<Mutex<Live>>,
     notes_stop: Arc<AtomicBool>,
     notes_thread: Option<std::thread::JoinHandle<()>>,
+    tracker_thread: Option<std::thread::JoinHandle<()>>,
     _awake: Option<linflow_platform::AwakeGuard>,
 }
 
@@ -329,6 +331,12 @@ impl Meetings {
             let stop = notes_stop.clone();
             std::thread::Builder::new().name("linflow.running-notes".into()).spawn(move || running_notes_loop(ctx, id, stop)).ok()
         });
+        let tracker_thread = settings.call_tracker.then(|| {
+            let ctx = self.ctx.clone();
+            let id = id.clone();
+            let stop = notes_stop.clone();
+            std::thread::Builder::new().name("linflow.tracker".into()).spawn(move || tracker_loop(ctx, id, stop)).ok()
+        });
         *guard = Some(Active {
             note_id: id.clone(),
             app: app.map(|a| a.to_lowercase()),
@@ -340,6 +348,7 @@ impl Meetings {
             live,
             notes_stop,
             notes_thread: notes_thread.flatten(),
+            tracker_thread: tracker_thread.flatten(),
             _awake: linflow_platform::keep_awake("Lin Flow is recording a meeting"),
         });
         drop(guard);
@@ -381,6 +390,7 @@ impl Meetings {
         self.ctx.emit(Event::Note { event: NoteEvent::Listed });
         a.notes_stop.store(true, Ordering::Relaxed);
         let notes_thread = a.notes_thread.take();
+        let tracker_thread = a.tracker_thread.take();
         drop(a);
         if quitting {
             return Some(id);
@@ -393,7 +403,7 @@ impl Meetings {
             // The last running-notes pass reads the live transcript; only then is the transcript
             // rebuilt from the audio, or its new segments would read as unnoted and be noted
             // twice.
-            if let Some(t) = notes_thread {
+            for t in [notes_thread, tracker_thread].into_iter().flatten() {
                 let _ = t.join();
             }
             if settings.keep_meeting_audio && settings.transcribe_after_meeting && ctx.notes.has_audio(&note_id) {
@@ -760,6 +770,50 @@ fn running_notes_loop(ctx: Arc<Context>, id: String, stop: Arc<AtomicBool>) {
                     last_pass = Instant::now();
                     break;
                 }
+            }
+        }
+        if last {
+            return;
+        }
+    }
+}
+
+/// The call tracker: every few seconds, whether enough new transcript has come in for a pass;
+/// at the end, one last pass over what is left. Off with a reason when there is no local model,
+/// since running notes already say so.
+fn tracker_loop(ctx: Arc<Context>, id: String, stop: Arc<AtomicBool>) {
+    let Ok(mut model) = notes::running_notes_model(&ctx) else { return };
+    log::info!("call tracker with {}", model.name());
+    // A note recorded a second time: what was already said was tracked the first time.
+    let mut read: HashSet<String> = ctx.notes.transcript(&id).into_iter().map(|s| s.id).collect();
+    let mut last_pass = Instant::now();
+    let title = || ctx.notes.load(&id).map(|n| n.title).unwrap_or_else(|| "Meeting".into());
+    loop {
+        let last = stop.load(Ordering::Relaxed);
+        if !last {
+            std::thread::sleep(Duration::from_secs(5));
+        }
+        let mut working = ctx.notes.tracker(&id);
+        let started = Instant::now();
+        match tracker::step(model.as_mut(), &ctx.notes.transcript(&id), &mut read, &mut working, &title(), last_pass.elapsed().as_secs_f64(), last) {
+            Ok(Some(step)) => {
+                last_pass = Instant::now();
+                let new: Vec<tracker::Item> = working.items[working.items.len() - step.added..].to_vec();
+                log::info!("call tracker: {} words in, {} item(s) out, {:.1} s{}", step.words, step.added, started.elapsed().as_secs_f64(), if last { " (final)" } else { "" });
+                if !new.is_empty() {
+                    if let Err(e) = notes::update_tracker(&ctx, &id, |t| {
+                        t.add(new);
+                        true
+                    }) {
+                        log::error!("call tracker: saving: {e}");
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                // The stretch stays unread; the next pass takes it with what follows.
+                log::error!("call tracker: {e}");
+                last_pass = Instant::now();
             }
         }
         if last {

@@ -117,6 +117,8 @@ pub enum NoteEvent {
     /// Each side's level, a few times a second while recording.
     Levels { mic: f32, system: f32 },
     RunningNotes { id: String, text: String },
+    /// The call tracker changed: a pass added to it, or John ticked something off.
+    Tracker { id: String, tracker: linflow_core::meeting::tracker::Tracker },
     /// Running notes cannot run during this recording: no local model and no Claude key.
     RunningNotesOff { id: String, why: String },
     /// Work in progress on a note, such as "From the recording: You 3/12", or None when done.

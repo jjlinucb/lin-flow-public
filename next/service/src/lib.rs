@@ -420,6 +420,14 @@ impl Service {
         notes::rename(&self.ctx, id, title)
     }
 
+    pub fn tracker(&self, id: &str) -> linflow_core::meeting::tracker::Tracker {
+        self.ctx.notes.tracker(id)
+    }
+
+    pub fn toggle_tracker(&self, id: &str, item: &str) -> Result<linflow_core::meeting::tracker::Tracker, String> {
+        notes::toggle_tracker(&self.ctx, id, item)
+    }
+
     pub fn relabel_speaker(&self, id: &str, from: &str, to: &str) -> Result<(), String> {
         notes::relabel(&self.ctx, id, from, to)
     }
