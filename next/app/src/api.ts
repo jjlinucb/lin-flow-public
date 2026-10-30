@@ -51,7 +51,7 @@ export function saveEdit(e: RuleEdit): [string, Record<string, string>] | null {
   const from = e.from.trim();
   const to = e.to.trim();
   if (!from || !to) return null;
-  return e.kind === "pending" ? ["accept_rule", { original: e.original, from, to }] : ["edit_rule", { original: e.original, from, to }];
+  return [e.kind === "pending" ? "accept_rule" : "edit_rule", { original: e.original, from, to }];
 }
 
 export interface Dictionary {
