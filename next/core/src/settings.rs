@@ -97,7 +97,7 @@ impl Default for Settings {
             offer_meeting_notes: true,
             hud_x: None,
             hud_y: None,
-            ollama_model: "qwen2.5:3b".into(),
+            ollama_model: crate::llm::OLLAMA_MODEL.into(),
             ollama_host: "http://127.0.0.1:11434".into(),
         }
     }

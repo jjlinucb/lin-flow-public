@@ -1,11 +1,11 @@
 //! Everything done to a meeting note outside the recording itself: which model writes notes,
-//! the pass over the recording, summaries, the recap, asking Claude, renaming, relabeling the
+//! the pass over the recording, summaries, the recap, asking about a meeting, renaming, relabeling the
 //! speakers, deleting.
 
 use crate::context::Context;
 use crate::engine::{self, SlotRecognizer};
 use crate::events::{Event, NoteEvent, Toast, ToastAction};
-use linflow_core::llm::{self, Claude, Ollama};
+use linflow_core::llm::{self, Ollama};
 use linflow_core::meeting::detect::Recap;
 use linflow_core::meeting::summary::{self, Kind, NoteModel};
 use linflow_core::audio_export::{self, Format};
@@ -14,35 +14,40 @@ use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-/// The model for running notes: the local one, since they run every minute and Claude costs
-/// money per call; Claude when there is no local model. Apple Intelligence is out (John,
-/// 2026-10-23), so on the Mac the local model is Ollama too. None, with the reason, when
-/// neither is there.
-pub fn running_notes_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
-    let s = ctx.settings();
-    let ollama = Ollama::new(&s.ollama_host, &s.ollama_model, ctx.net.clone());
-    let local = ollama.check();
-    if local.is_none() {
-        return Ok(Box::new(ollama));
-    }
-    if let Some(claude) = Claude::from_saved_key(ctx.net.clone()) {
-        return Ok(Box::new(claude));
-    }
-    Err(local.unwrap_or_default())
+/// The local model every meeting uses, through Ollama. Nothing from a meeting leaves the
+/// computer (John, 2026-10-30): his work calls must never reach Claude, and he wants no split
+/// between work and personal calls, so Claude is out for meetings altogether, saved key or not.
+/// The default model is the bigger one; a computer that only has the small one uses it.
+pub fn local_model(ctx: &Context) -> Result<Ollama, String> {
+    pick_local(&ctx.settings(), ctx.net.clone())
 }
 
-/// The model for summaries, recaps and questions: Claude once a key is saved, since it reads a
-/// whole meeting at once; the local model otherwise.
+/// The small model was the default until 2026-10-30, and every settings save wrote it down, so
+/// a saved "qwen2.5:3b" is the old default rather than a choice: it moves up to the bigger
+/// model once that is pulled.
+fn pick_local(s: &linflow_core::settings::Settings, net: Arc<dyn linflow_core::net::Transport>) -> Result<Ollama, String> {
+    let saved = s.ollama_model.trim();
+    let default = saved.is_empty() || saved == llm::OLLAMA_MODEL || saved == llm::OLLAMA_SMALL_MODEL;
+    let first = if default { llm::OLLAMA_MODEL } else { saved };
+    let chosen = Ollama::new(&s.ollama_host, first, net.clone());
+    let Some(why) = chosen.check() else { return Ok(chosen) };
+    if default {
+        let small = Ollama::new(&s.ollama_host, llm::OLLAMA_SMALL_MODEL, net);
+        if small.check().is_none() {
+            return Ok(small);
+        }
+    }
+    Err(why)
+}
+
+/// The model for running notes and the call tracker.
+pub fn running_notes_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
+    local_model(ctx).map(|m| Box::new(m) as Box<dyn NoteModel + Send>)
+}
+
+/// The model for summaries, recaps and questions.
 pub fn summary_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
-    if let Some(claude) = Claude::from_saved_key(ctx.net.clone()) {
-        return Ok(Box::new(claude));
-    }
-    let s = ctx.settings();
-    let ollama = Ollama::new(&s.ollama_host, &s.ollama_model, ctx.net.clone());
-    match ollama.check() {
-        None => Ok(Box::new(ollama)),
-        Some(why) => Err(format!("No model to write notes with. Save a Claude key (scripts/setup-claude.sh), or {}", lower_first(&why))),
-    }
+    local_model(ctx).map(|m| Box::new(m) as Box<dyn NoteModel + Send>).map_err(|why| format!("No model to write notes with: {}", lower_first(&why)))
 }
 
 fn lower_first(s: &str) -> String {
@@ -279,8 +284,9 @@ impl NoteWork {
         self.ctx.toast(toast);
     }
 
-    /// One question about a note to Claude, with the transcript so far, John's notes and the
-    /// questions before it. The answer is saved with the note.
+    /// One question about a note to the local model, with the newest stretch of the transcript
+    /// that fits beside John's notes and the questions before it. The answer is saved with the
+    /// note.
     pub fn ask(self: &Arc<Self>, id: &str, question: &str) {
         let q = question.trim().to_string();
         if q.is_empty() || !self.asking.lock().unwrap().insert(id.to_string()) {
@@ -289,15 +295,17 @@ impl NoteWork {
         let me = self.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
-            match Claude::from_saved_key(me.ctx.net.clone()) {
-                None => me.error("Save a Claude key first: run scripts/setup-claude.sh once."),
-                Some(client) => {
+            match summary_model(&me.ctx) {
+                Err(why) => me.error(why),
+                Ok(mut model) => {
                     let title = me.ctx.notes.load(&id).map(|n| n.title).unwrap_or_else(|| "Meeting".into());
-                    let transcript = transcript_text(&me.ctx.notes.transcript(&id), true);
                     let notes = me.ctx.notes.notes_text(&id);
                     let mut turns = me.ctx.notes.questions(&id);
+                    let room = model.window_characters().saturating_sub(llm::questions::prompt(&title, "", &notes, &turns, &q).len());
+                    let transcript = summary::tail(&transcript_text(&me.ctx.notes.transcript(&id), true), room.max(1_500));
                     let prompt = llm::questions::prompt(&title, &transcript, &notes, &turns, &q);
-                    match client.ask(llm::questions::SYSTEM, &prompt, 1024) {
+                    let request = summary::Request { instructions: llm::questions::SYSTEM.into(), prompt, max_tokens: 400, lists: vec![], greedy: false };
+                    match model.complete(&request) {
                         Ok(answer) => {
                             turns.push(QuestionTurn { question: q.clone(), answer, asked_at: linflow_core::notes::now() });
                             let _ = me.ctx.notes.save_questions(&id, &turns);
@@ -439,6 +447,28 @@ pub fn speakers(segments: &[TranscriptSegment]) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::events::Sink;
+
+    struct Tags(&'static str);
+    impl linflow_core::net::Transport for Tags {
+        fn send(&self, _: &linflow_core::net::HttpRequest) -> Result<linflow_core::net::HttpResponse, linflow_core::net::NetError> {
+            Ok(linflow_core::net::HttpResponse { status: 200, body: format!(r#"{{"models":[{}]}}"#, self.0).into_bytes() })
+        }
+    }
+
+    #[test]
+    fn meetings_use_the_bigger_local_model_then_the_small_one() {
+        let s = linflow_core::settings::Settings::default();
+        let both = pick_local(&s, Arc::new(Tags(r#"{"name":"qwen2.5:3b"},{"name":"qwen2.5:7b"}"#))).unwrap();
+        assert_eq!(both.model, "qwen2.5:7b");
+        let small = pick_local(&s, Arc::new(Tags(r#"{"name":"qwen2.5:3b"}"#))).unwrap();
+        assert_eq!(small.model, "qwen2.5:3b", "a computer without the 7b keeps working");
+        let why = pick_local(&s, Arc::new(Tags(""))).err().unwrap_or_default();
+        assert!(why.contains("ollama pull qwen2.5:7b"), "{why}");
+        let old_default = linflow_core::settings::Settings { ollama_model: "qwen2.5:3b".into(), ..s.clone() };
+        assert_eq!(pick_local(&old_default, Arc::new(Tags(r#"{"name":"qwen2.5:3b"},{"name":"qwen2.5:7b"}"#))).unwrap().model, "qwen2.5:7b", "the old default moves up");
+        let chosen = linflow_core::settings::Settings { ollama_model: "llama3.2:3b".into(), ..s };
+        assert!(pick_local(&chosen, Arc::new(Tags(r#"{"name":"qwen2.5:3b"}"#))).is_err(), "a model John chose is not swapped for another");
+    }
 
     #[test]
     fn saved_audio_is_remembered_and_follows_a_rename() {

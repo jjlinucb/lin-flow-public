@@ -1,5 +1,5 @@
 // Meetings: the list, and one meeting at a time with its live transcript, John's own notes,
-// running notes and the summary, and Ask Claude. While a meeting records, each side has a
+// running notes and the summary, and Ask. While a meeting records, each side has a
 // meter, the proof that both are being heard.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
@@ -97,7 +97,7 @@ export function Notetaker(props: {
   );
 }
 
-function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, claudeReady, onError, onSelect }: Parameters<typeof Notetaker>[0] & { id: string }) {
+function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, onError, onSelect }: Parameters<typeof Notetaker>[0] & { id: string }) {
   const [d, setD] = useState<NoteDetail | null>(null);
   const [title, setTitle] = useState("");
   const [myNotes, setMyNotes] = useState("");
@@ -311,7 +311,7 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
 
         <div class="pane">
           <h3>My notes</h3>
-          <textarea style={{ height: 110, flex: "none" }} value={myNotes} onInput={(e) => editNotes(e.currentTarget.value)} placeholder="Anything you want to remember. Claude reads these too." />
+          <textarea style={{ height: 110, flex: "none" }} value={myNotes} onInput={(e) => editNotes(e.currentTarget.value)} placeholder="Anything you want to remember. Ask reads these too." />
           <div class="row small" style={{ flexWrap: "wrap" }}>
             {hasBoth ? (
               <div class="tabs">
@@ -349,33 +349,27 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
             )}
           </div>
           <div class="row">
-            <h3>Ask Claude</h3>
+            <h3 title="Answered on this computer by the local model, from the newest part of the transcript.">Ask</h3>
             {d.asking ? <span class="small muted">Thinking…</span> : null}
           </div>
-          {!claudeReady ? (
-            <div class="small muted">Run scripts/setup-claude.sh once to save a Claude key, then reopen Lin Flow.</div>
-          ) : (
-            <>
-              <div class="row small" style={{ flexWrap: "wrap" }}>
-                {QUICK.map(([label, q]) => (
-                  <button disabled={d.asking || d.segments.length === 0} onClick={() => ask(q)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {d.questions.length > 0 ? (
-                <div class="box" style={{ maxHeight: 180 }} {...answersBox}>
-                  {d.questions.map((t) => (
-                    <div style={{ marginBottom: 10 }}>
-                      <b>{t.question}</b>
-                      <Markdown text={t.answer} />
-                    </div>
-                  ))}
+          <div class="row small" style={{ flexWrap: "wrap" }}>
+            {QUICK.map(([label, q]) => (
+              <button disabled={d.asking || d.segments.length === 0} onClick={() => ask(q)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {d.questions.length > 0 ? (
+            <div class="box" style={{ maxHeight: 180 }} {...answersBox}>
+              {d.questions.map((t) => (
+                <div style={{ marginBottom: 10 }}>
+                  <b>{t.question}</b>
+                  <Markdown text={t.answer} />
                 </div>
-              ) : null}
-              <input placeholder="Ask about this meeting…" value={question} disabled={d.asking} onInput={(e) => setQuestion(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && ask(question)} />
-            </>
-          )}
+              ))}
+            </div>
+          ) : null}
+          <input placeholder="Ask about this meeting…" value={question} disabled={d.asking} onInput={(e) => setQuestion(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && ask(question)} />
         </div>
       </div>
     </div>
