@@ -76,6 +76,30 @@ impl Tracker {
         }
     }
 
+    /// "Asked of you" and "To do" as Markdown task lists, ticked as John left them; empty when
+    /// there is nothing on it.
+    pub fn markdown(&self) -> String {
+        let mut md = String::new();
+        for (kind, heading) in [(Kind::Question, "Asked of you"), (Kind::Action, "To do")] {
+            let items: Vec<&Item> = self.items.iter().filter(|i| i.kind == kind).collect();
+            if items.is_empty() {
+                continue;
+            }
+            md.push_str(&format!("## {heading}\n\n"));
+            for i in items {
+                let tick = if i.done { "x" } else { " " };
+                let line = match kind {
+                    Kind::Question if i.detail.is_empty() => i.text.clone(),
+                    Kind::Question => format!("{} *{}*", i.text, i.detail),
+                    Kind::Action => format!("{}: {}", i.detail, i.text),
+                };
+                md.push_str(&format!("- [{tick}] [{}] {line}\n", crate::notes::clock(i.at)));
+            }
+            md.push('\n');
+        }
+        md
+    }
+
     fn texts(&self, kind: Kind) -> Vec<String> {
         self.items.iter().filter(|i| i.kind == kind).map(|i| i.text.clone()).collect()
     }
@@ -308,6 +332,9 @@ mod tests {
         let json = serde_json::to_string(&t).unwrap();
         assert_eq!(json, r#"{"items":[{"id":"a-1","kind":"action","at":5.0,"text":"send the logs","detail":"You","done":true}]}"#);
         assert_eq!(serde_json::from_str::<Tracker>(&json).unwrap(), t);
+        t.add(vec![Item { id: String::new(), kind: Kind::Question, at: 65.0, text: "Ready by Friday?".into(), detail: "Give a range.".into(), done: false }]);
+        assert_eq!(t.markdown(), "## Asked of you\n\n- [ ] [1:05] Ready by Friday? *Give a range.*\n\n## To do\n\n- [x] [0:05] You: send the logs\n\n");
+        assert_eq!(Tracker::default().markdown(), "");
     }
 
     #[test]

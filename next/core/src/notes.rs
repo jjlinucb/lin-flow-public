@@ -414,6 +414,7 @@ impl NotesStore {
         if let Some(summary) = self.summary(&note.id).filter(|s| !s.trim().is_empty()) {
             md.push_str(&format!("## Summary\n\n{}\n\n", summary.trim()));
         }
+        md.push_str(&self.tracker(&note.id).markdown());
         let notes = self.notes_text(&note.id);
         if !notes.trim().is_empty() {
             md.push_str(&format!("## My notes\n\n{}\n\n", notes.trim()));

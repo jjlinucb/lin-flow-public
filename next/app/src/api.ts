@@ -149,6 +149,7 @@ export interface NoteDetail {
   myNotes: string;
   summary: string;
   runningNotes: string;
+  tracker: Tracker;
   questions: QuestionTurn[];
   hasAudio: boolean;
   recording: boolean;

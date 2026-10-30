@@ -55,6 +55,16 @@ const settings: Settings = {
 
 const note: MeetingNote = { id: "N1", title: "Zoom Oct 2, 9:30 AM", createdAt: iso(300), endedAt: iso(240), durationSeconds: 3540, usedMicrophone: true, usedSystemAudio: true };
 
+const tracker: Tracker = {
+  items: [
+    { id: "q-1", kind: "question", at: 130, text: "Can the parser rewrite land by Friday?", detail: "Give a range, and say what Friday depends on.", done: false },
+    { id: "a-2", kind: "action", at: 140, text: "Label two thousand night images by Thursday", detail: "You", done: false },
+    { id: "a-3", kind: "action", at: 150, text: "Get the GPU box ready by Wednesday", detail: "Kevin", done: false },
+    { id: "q-4", kind: "question", at: 205, text: "What's the plan for showing confidence scores on the dashboard?", detail: "Say you'll propose a per-image score with a threshold, and confirm by Friday.", done: false },
+    { id: "a-5", kind: "action", at: 260, text: "Walk through the results slide at the demo", detail: "You", done: true },
+  ],
+};
+
 const detail: NoteDetail = {
   note,
   segments: [
@@ -65,6 +75,7 @@ const detail: NoteDetail = {
   myNotes: "",
   summary: "## Summary\n* The rollout goes Windows first, Mac last.\n## Decisions\n* One computer at a time.\n## Action items\n* John writes the checklist by Thursday.\n## Open questions\n* None",
   runningNotes: "- [0:10] Windows ships first, the Mac last.\n- [1:10] Night images get two thousand more labels before retraining.\n",
+  tracker,
   questions: [],
   hasAudio: true,
   recording: false,
@@ -73,16 +84,6 @@ const detail: NoteDetail = {
   asking: false,
   speakers: ["You", "Others"],
   audioFormat: "mp3",
-};
-
-const tracker: Tracker = {
-  items: [
-    { id: "q-1", kind: "question", at: 130, text: "Can the parser rewrite land by Friday?", detail: "Give a range, and say what Friday depends on.", done: false },
-    { id: "a-2", kind: "action", at: 140, text: "Label two thousand night images by Thursday", detail: "You", done: false },
-    { id: "a-3", kind: "action", at: 150, text: "Get the GPU box ready by Wednesday", detail: "Kevin", done: false },
-    { id: "q-4", kind: "question", at: 205, text: "What's the plan for showing confidence scores on the dashboard?", detail: "Say you'll propose a per-image score with a threshold, and confirm by Friday.", done: false },
-    { id: "a-5", kind: "action", at: 260, text: "Walk through the results slide at the demo", detail: "You", done: true },
-  ],
 };
 
 class Mock {
@@ -234,7 +235,7 @@ class Mock {
       case "notes":
         return r([note]);
       case "note":
-        return r(a.id === note.id ? structuredClone(detail) : null);
+        return r(a.id === note.id ? structuredClone({ ...detail, tracker }) : null);
       case "create_note":
         return r(note);
       case "start_note":
