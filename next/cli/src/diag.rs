@@ -501,3 +501,60 @@ pub fn running_notes_test(args: &[String]) {
     }
     eprintln!("[{}]", model.name());
 }
+
+/// Replays a meeting through the call tracker on the local model, as the app runs it during a
+/// call, and prints each question and promise when it would have appeared.
+pub fn tracker_test(args: &[String]) {
+    use linflow_core::llm::Ollama;
+    use linflow_core::meeting::tracker::{self, Kind};
+    use summary::NoteModel;
+    let f = flags(args);
+    let Some(file) = f.positional.get(1) else { usage() };
+    let segments: Vec<TranscriptSegment> = std::fs::read_to_string(file)
+        .unwrap_or_else(|e| {
+            eprintln!("{file}: {e}");
+            std::process::exit(1)
+        })
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let settings = linflow_core::settings::SettingsFile::load(&paths::settings_file()).values;
+    let name = f.values.get("model").cloned().unwrap_or_else(|| linflow_core::llm::OLLAMA_MODEL.into());
+    let mut model = Ollama::new(&settings.ollama_host, &name, std::sync::Arc::new(linflow_core::net::Ureq));
+    if let Some(why) = model.check() {
+        eprintln!("{why}");
+        std::process::exit(1)
+    }
+    let title = Path::new(file).parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Meeting".into());
+    let end = segments.iter().map(|s| s.end).fold(0.0, f64::max);
+    let (mut read, mut t) = (std::collections::HashSet::new(), tracker::Tracker::default());
+    let (mut clock, mut last_pass, mut seconds) = (0.0, 0.0, vec![]);
+    loop {
+        let last = clock >= end;
+        let heard: Vec<TranscriptSegment> = segments.iter().filter(|s| last || s.end <= clock).cloned().collect();
+        let t0 = Instant::now();
+        match tracker::step(&mut model, &heard, &mut read, &mut t, &title, clock - last_pass, last) {
+            Ok(Some(step)) => {
+                seconds.push(t0.elapsed().as_secs_f64());
+                last_pass = clock;
+                for i in &t.items[t.items.len() - step.added..] {
+                    match i.kind {
+                        Kind::Question => println!("[{}] Q  {}\n         -> {}", linflow_core::notes::clock(clock.min(end)), i.text, i.detail),
+                        Kind::Action => println!("[{}] TO DO  {}: {}", linflow_core::notes::clock(clock.min(end)), i.detail, i.text),
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("  [at {}: {e}]", linflow_core::notes::clock(clock));
+                last_pass = clock;
+            }
+        }
+        if last {
+            break;
+        }
+        clock += 5.0;
+    }
+    let n = seconds.len().max(1) as f64;
+    eprintln!("[{}: {} passes, {:.1} s each on average, {:.1} s at most]", model.name(), seconds.len(), seconds.iter().sum::<f64>() / n, seconds.iter().cloned().fold(0.0, f64::max));
+}

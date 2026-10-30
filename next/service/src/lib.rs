@@ -58,6 +58,7 @@ pub struct NoteDetail {
     pub my_notes: String,
     pub summary: String,
     pub running_notes: String,
+    pub tracker: linflow_core::meeting::tracker::Tracker,
     pub questions: Vec<QuestionTurn>,
     pub has_audio: bool,
     pub recording: bool,
@@ -390,6 +391,7 @@ impl Service {
             my_notes: self.ctx.notes.notes_text(id),
             summary: self.ctx.notes.summary(id).unwrap_or_default(),
             running_notes: self.ctx.notes.running_notes(id),
+            tracker: self.ctx.notes.tracker(id),
             questions: self.ctx.notes.questions(id),
             has_audio: self.ctx.notes.has_audio(id),
             elapsed: if recording { self.meetings.elapsed().unwrap_or(0.0) } else { note.duration_seconds },
@@ -418,6 +420,14 @@ impl Service {
 
     pub fn rename_note(&self, id: &str, title: &str) -> Result<MeetingNote, String> {
         notes::rename(&self.ctx, id, title)
+    }
+
+    pub fn tracker(&self, id: &str) -> linflow_core::meeting::tracker::Tracker {
+        self.ctx.notes.tracker(id)
+    }
+
+    pub fn toggle_tracker(&self, id: &str, item: &str) -> Result<linflow_core::meeting::tracker::Tracker, String> {
+        notes::toggle_tracker(&self.ctx, id, item)
     }
 
     pub fn relabel_speaker(&self, id: &str, from: &str, to: &str) -> Result<(), String> {

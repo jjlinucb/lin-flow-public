@@ -55,7 +55,8 @@ body.main {
 }
 
 body.pill,
-body.toast {
+body.toast,
+body.tracker {
   background: transparent;
   overflow: hidden;
   user-select: none;
@@ -897,4 +898,161 @@ textarea {
     opacity: 0;
     transform: translateY(6px);
   }
+}
+
+/* The call tracker: the toasts' dark glass, a column at the edge of the screen. */
+.tracker-panel {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(24, 24, 26, 0.94);
+  color: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  font-size: 12.5px;
+}
+
+.tracker-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: grab;
+}
+
+.tracker-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  flex: none;
+}
+
+.tracker-dot.on {
+  background: rgb(242, 59, 59);
+}
+
+.tracker-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracker-head button {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border: none;
+  font-size: 11.5px;
+}
+
+.tracker-head button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.tracker-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 6px 10px;
+}
+
+.tracker-section {
+  margin-top: 8px;
+}
+
+.tracker-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 0 6px 4px;
+}
+
+.tracker-empty {
+  color: rgba(255, 255, 255, 0.4);
+  padding: 2px 6px 4px;
+}
+
+.tracker-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1.35;
+}
+
+.tracker-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.tracker-row .tick {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 11px;
+  text-align: center;
+}
+
+.tracker-row.done {
+  color: rgba(255, 255, 255, 0.45);
+  text-decoration: line-through;
+}
+
+.tracker-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tracker-text .q {
+  font-weight: 600;
+}
+
+.tracker-text .angle {
+  color: rgba(255, 255, 255, 0.72);
+  margin-top: 2px;
+}
+
+.tracker-text .who {
+  color: #f0b46e;
+  font-weight: 600;
+}
+
+.tracker-text .who.you {
+  color: #7fb0ff;
+}
+
+.tracker-note .at,
+.tracker-row .at {
+  flex: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tracker-note {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 3px 6px 3px 28px;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.35;
+}
+
+.tracker-done-toggle {
+  margin: 10px 6px 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.5);
+  border: none;
+  padding: 0;
+  font-size: 11.5px;
 }

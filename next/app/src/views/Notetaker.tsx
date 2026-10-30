@@ -1,11 +1,18 @@
 // Meetings: the list, and one meeting at a time with its live transcript, John's own notes,
-// running notes and the summary, and Ask Claude. While a meeting records, each side has a
+// running notes and the summary, and Ask. While a meeting records, each side has a
 // meter, the proof that both are being heard.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { call, clock, noteDate, type MeetingNote, type NoteDetail, type Segment, type Settings } from "../api";
+import { call, clock, noteDate, type MeetingNote, type NoteDetail, type Segment, type Settings, type Tracker, type TrackerItem } from "../api";
 import { More, NavNotes, Plus, Trash } from "../icons";
 import { Markdown } from "../markdown";
+
+type Tab = "summary" | "running" | "tracker";
+const TABS: [Tab, string][] = [
+  ["summary", "Summary"],
+  ["running", "Running notes"],
+  ["tracker", "Tracker"],
+];
 
 const QUICK: [string, string][] = [
   ["Summarize so far", "Summarize the meeting so far: the main points, anything decided, and who owes what."],
@@ -97,11 +104,11 @@ export function Notetaker(props: {
   );
 }
 
-function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, claudeReady, onError, onSelect }: Parameters<typeof Notetaker>[0] & { id: string }) {
+function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, onError, onSelect }: Parameters<typeof Notetaker>[0] & { id: string }) {
   const [d, setD] = useState<NoteDetail | null>(null);
   const [title, setTitle] = useState("");
   const [myNotes, setMyNotes] = useState("");
-  const [tab, setTab] = useState<"summary" | "running">("summary");
+  const [tab, setTab] = useState<Tab>("summary");
   const [menu, setMenu] = useState(false);
   const [question, setQuestion] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -145,8 +152,9 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
   if (!d) return <div />;
 
   const status = live.status[id] ?? d.busy ?? null;
-  const hasBoth = d.summary.trim() !== "" && d.runningNotes.trim() !== "";
-  const showRunning = hasBoth ? tab === "running" : d.summary.trim() === "" && d.runningNotes.trim() !== "";
+  // The tabs with something in them; the chosen one, or the first that has anything.
+  const tabs = TABS.filter(([t]) => (t === "summary" ? d.summary.trim() !== "" : t === "running" ? d.runningNotes.trim() !== "" : d.tracker.items.length > 0));
+  const shown: Tab | null = tabs.some(([t]) => t === tab) ? tab : (tabs[0]?.[0] ?? null);
   const otherRecording = recordingId !== null && !recording;
 
   const rename = () => {
@@ -311,19 +319,18 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
 
         <div class="pane">
           <h3>My notes</h3>
-          <textarea style={{ height: 110, flex: "none" }} value={myNotes} onInput={(e) => editNotes(e.currentTarget.value)} placeholder="Anything you want to remember. Claude reads these too." />
+          <textarea style={{ height: 110, flex: "none" }} value={myNotes} onInput={(e) => editNotes(e.currentTarget.value)} placeholder="Anything you want to remember. Ask reads these too." />
           <div class="row small" style={{ flexWrap: "wrap" }}>
-            {hasBoth ? (
+            {tabs.length > 1 ? (
               <div class="tabs">
-                <button class={tab === "summary" ? "on" : ""} onClick={() => setTab("summary")}>
-                  Summary
-                </button>
-                <button class={tab === "running" ? "on" : ""} onClick={() => setTab("running")}>
-                  Running notes
-                </button>
+                {tabs.map(([t, label]) => (
+                  <button class={shown === t ? "on" : ""} onClick={() => setTab(t)}>
+                    {label}
+                  </button>
+                ))}
               </div>
             ) : (
-              <h3>{showRunning || (recording && !d.summary) ? "Running notes" : "Summary"}</h3>
+              <h3>{tabs[0]?.[1] ?? (recording ? "Running notes" : "Summary")}</h3>
             )}
             <span class="spacer" />
             <button disabled={d.segments.length === 0 || status !== null} title="What did I miss? A few bullets on the last five minutes." onClick={() => call("recap", { id, minutes: 5 }).catch(fail)}>
@@ -334,9 +341,11 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
             </button>
           </div>
           <div class="box" style={{ flex: 1 }} {...notesBox}>
-            {showRunning ? (
+            {shown === "running" ? (
               <Markdown text={d.runningNotes} />
-            ) : d.summary ? (
+            ) : shown === "tracker" ? (
+              <TrackerList id={id} tracker={d.tracker} onChange={(tracker) => setD({ ...d, tracker })} onError={fail} />
+            ) : shown === "summary" ? (
               <Markdown text={d.summary} />
             ) : (
               <span class="muted">
@@ -349,35 +358,60 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
             )}
           </div>
           <div class="row">
-            <h3>Ask Claude</h3>
+            <h3 title="Answered on this computer by the local model, from the newest part of the transcript.">Ask</h3>
             {d.asking ? <span class="small muted">Thinking…</span> : null}
           </div>
-          {!claudeReady ? (
-            <div class="small muted">Run scripts/setup-claude.sh once to save a Claude key, then reopen Lin Flow.</div>
-          ) : (
-            <>
-              <div class="row small" style={{ flexWrap: "wrap" }}>
-                {QUICK.map(([label, q]) => (
-                  <button disabled={d.asking || d.segments.length === 0} onClick={() => ask(q)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {d.questions.length > 0 ? (
-                <div class="box" style={{ maxHeight: 180 }} {...answersBox}>
-                  {d.questions.map((t) => (
-                    <div style={{ marginBottom: 10 }}>
-                      <b>{t.question}</b>
-                      <Markdown text={t.answer} />
-                    </div>
-                  ))}
+          <div class="row small" style={{ flexWrap: "wrap" }}>
+            {QUICK.map(([label, q]) => (
+              <button disabled={d.asking || d.segments.length === 0} onClick={() => ask(q)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {d.questions.length > 0 ? (
+            <div class="box" style={{ maxHeight: 180 }} {...answersBox}>
+              {d.questions.map((t) => (
+                <div style={{ marginBottom: 10 }}>
+                  <b>{t.question}</b>
+                  <Markdown text={t.answer} />
                 </div>
-              ) : null}
-              <input placeholder="Ask about this meeting…" value={question} disabled={d.asking} onInput={(e) => setQuestion(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && ask(question)} />
-            </>
-          )}
+              ))}
+            </div>
+          ) : null}
+          <input placeholder="Ask about this meeting…" value={question} disabled={d.asking} onInput={(e) => setQuestion(e.currentTarget.value)} onKeyDown={(e) => e.key === "Enter" && ask(question)} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The call tracker as it stood when the meeting ended, still tickable. */
+function TrackerList({ id, tracker, onChange, onError }: { id: string; tracker: Tracker; onChange: (t: Tracker) => void; onError: (e: unknown) => void }) {
+  const toggle = (item: TrackerItem) => call<Tracker>("toggle_tracker", { id, item: item.id }).then(onChange).catch(onError);
+  const group = (kind: TrackerItem["kind"], label: string) => {
+    const items = tracker.items.filter((i) => i.kind === kind);
+    if (items.length === 0) return null;
+    return (
+      <>
+        <h4 style={{ margin: "4px 0" }}>{label}</h4>
+        {items.map((i) => (
+          <label class="row small" style={{ alignItems: "flex-start", textDecoration: i.done ? "line-through" : "none", opacity: i.done ? 0.6 : 1 }}>
+            <input type="checkbox" checked={i.done} onChange={() => toggle(i)} />
+            <span style={{ flex: 1 }}>
+              {kind === "action" ? <b>{i.detail}: </b> : null}
+              {i.text}
+              {kind === "question" && i.detail ? <div class="muted">{i.detail}</div> : null}
+            </span>
+            <span class="muted">{clock(i.at)}</span>
+          </label>
+        ))}
+      </>
+    );
+  };
+  return (
+    <div>
+      {group("question", "Asked of you")}
+      {group("action", "To do")}
     </div>
   );
 }

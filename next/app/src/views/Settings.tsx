@@ -121,17 +121,18 @@ export function Settings({ view, recorded, onChange, onError }: { view: Settings
           <Toggle label="Keep meeting audio files" help="About 115 MB per hour per side. The transcript, notes and summary are always kept." value={s.keepMeetingAudio} onChange={(v) => set("keepMeetingAudio", v)} />
           <Toggle label="Transcribe the recording again when a meeting ends" help="The live transcript keeps up by cutting every few seconds. Afterwards the saved audio is transcribed whole and replaces it." value={s.transcribeAfterMeeting} onChange={(v) => set("transcribeAfterMeeting", v)} />
           <Toggle label="Write running notes during a meeting" help="Every minute or so, a few bullets on what was just said." value={s.runningNotes} onChange={(v) => set("runningNotes", v)} />
+          <Toggle label="Show the call tracker during a meeting" help="A panel at the edge of the screen with questions put to you, promises made, and the latest notes. Share one window, not the whole screen, to keep it off the call. Reopen it from the pill's menu." value={s.callTracker} onChange={(v) => set("callTracker", v)} />
           <div class="field">
             <span class="label">
               Claude
-              <span class="help">Summaries and Ask Claude use your saved key. scripts/setup-claude.sh saves one.</span>
+              <span class="help">Meetings never use it: everything from a call stays on this computer. Only the command line's ask and summarize read this key.</span>
             </span>
             <span class={view.claudeReady ? "" : "muted"}>{view.claudeReady ? "Key saved" : "No key"}</span>
           </div>
           <div class="field">
             <span class="label">
               Local model
-              <span class="help">Ollama, for running notes without sending anything off this computer.</span>
+              <span class="help">Ollama, for running notes, the call tracker, summaries and Ask, without sending anything off this computer.</span>
             </span>
             <input value={s.notesModel} style={{ width: 120 }} onChange={(e) => set("notesModel", e.currentTarget.value.trim())} />
           </div>

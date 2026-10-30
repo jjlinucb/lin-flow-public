@@ -61,6 +61,7 @@ export interface Settings {
   audioRetentionDays: number;
   keepMeetingAudio: boolean;
   runningNotes: boolean;
+  callTracker: boolean;
   transcribeAfterMeeting: boolean;
   meetingUsesMicrophone: boolean;
   meetingUsesSystemAudio: boolean;
@@ -148,6 +149,7 @@ export interface NoteDetail {
   myNotes: string;
   summary: string;
   runningNotes: string;
+  tracker: Tracker;
   questions: QuestionTurn[];
   hasAudio: boolean;
   recording: boolean;
@@ -157,6 +159,21 @@ export interface NoteDetail {
   speakers: string[];
   /** What Save Audio writes here: "mp3", or "wav" without LAME. */
   audioFormat: string;
+}
+
+export interface TrackerItem {
+  id: string;
+  kind: "question" | "action";
+  /** Seconds into the meeting. */
+  at: number;
+  text: string;
+  /** A question's angle for answering; an action's owner. */
+  detail: string;
+  done: boolean;
+}
+
+export interface Tracker {
+  items: TrackerItem[];
 }
 
 export type ToastAction =
@@ -186,6 +203,7 @@ export type NoteEvent =
   | { type: "levels"; mic: number; system: number }
   | { type: "runningNotes"; id: string; text: string }
   | { type: "runningNotesOff"; id: string; why: string }
+  | { type: "tracker"; id: string; tracker: Tracker }
   | { type: "status"; id: string; text?: string | null }
   | { type: "summary"; id: string; text: string }
   | { type: "recap"; id: string; sentence: string }
