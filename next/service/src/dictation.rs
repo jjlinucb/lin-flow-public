@@ -396,7 +396,7 @@ impl Dictation {
         }
         let to_paste = if settings.trailing_space && !text.ends_with('\n') { format!("{text} ") } else { text.clone() };
         let hook = command::Hook::load(&self.ctx.data_dir);
-        let spoken = hook.as_ref().and_then(|h| command::spoken_command(&text, &h.word).map(|c| (h, c)));
+        let spoken = hook.as_ref().and_then(|h| h.command_in(&text).map(|c| (h, c)));
         if let Some((hook, said)) = spoken {
             // A step can take a while (a question to Claude): the card stays until the next line.
             const WORKING: f64 = 180.0;
