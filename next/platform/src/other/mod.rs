@@ -75,3 +75,7 @@ impl FieldReader {
         0
     }
 }
+
+pub fn modifier_held(_name: &str) -> bool {
+    false
+}
