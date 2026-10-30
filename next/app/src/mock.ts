@@ -2,7 +2,7 @@
 // a small dictionary and one meeting, enough to click through every section. Nothing here is
 // John's; nothing here is saved.
 
-import type { Dictionary, HistoryEntry, MeetingNote, NoteDetail, ServiceEvent, Settings, SettingsView, Stats, StatusView } from "./api";
+import type { Dictionary, HistoryEntry, MeetingNote, NoteDetail, ServiceEvent, Settings, SettingsView, Stats, StatusView, Tracker } from "./api";
 
 type Handler = (e: ServiceEvent) => void;
 
@@ -42,6 +42,7 @@ const settings: Settings = {
   audioRetentionDays: 30,
   keepMeetingAudio: true,
   runningNotes: true,
+  callTracker: true,
   transcribeAfterMeeting: true,
   meetingUsesMicrophone: true,
   meetingUsesSystemAudio: true,
@@ -63,7 +64,7 @@ const detail: NoteDetail = {
   ],
   myNotes: "",
   summary: "## Summary\n* The rollout goes Windows first, Mac last.\n## Decisions\n* One computer at a time.\n## Action items\n* John writes the checklist by Thursday.\n## Open questions\n* None",
-  runningNotes: "**0:10**\n* Windows ships first, the Mac last.\n",
+  runningNotes: "- [0:10] Windows ships first, the Mac last.\n- [1:10] Night images get two thousand more labels before retraining.\n",
   questions: [],
   hasAudio: true,
   recording: false,
@@ -72,6 +73,16 @@ const detail: NoteDetail = {
   asking: false,
   speakers: ["You", "Others"],
   audioFormat: "mp3",
+};
+
+const tracker: Tracker = {
+  items: [
+    { id: "q-1", kind: "question", at: 130, text: "Can the parser rewrite land by Friday?", detail: "Give a range, and say what Friday depends on.", done: false },
+    { id: "a-2", kind: "action", at: 140, text: "Label two thousand night images by Thursday", detail: "You", done: false },
+    { id: "a-3", kind: "action", at: 150, text: "Get the GPU box ready by Wednesday", detail: "Kevin", done: false },
+    { id: "q-4", kind: "question", at: 205, text: "What's the plan for showing confidence scores on the dashboard?", detail: "Say you'll propose a per-image score with a threshold, and confirm by Friday.", done: false },
+    { id: "a-5", kind: "action", at: 260, text: "Walk through the results slide at the demo", detail: "You", done: true },
+  ],
 };
 
 class Mock {
@@ -114,7 +125,15 @@ class Mock {
     const r = (v: unknown) => v as T;
     switch (command) {
       case "status":
-        return r(this.state);
+        // The tracker page opens on the meeting being recorded.
+        return r(location.pathname.includes("tracker") ? { ...this.state, recordingNote: note.id } : this.state);
+      case "tracker":
+        return r(structuredClone(tracker));
+      case "toggle_tracker": {
+        const i = tracker.items.find((x) => x.id === a.item);
+        if (i) i.done = !i.done;
+        return r(structuredClone(tracker));
+      }
       case "check_update":
         return r({ current: "caafe1d", latest: "b0168ec", published: "2026-10-27", newer: true, error: null });
       case "install_update":

@@ -121,6 +121,7 @@ export function Settings({ view, recorded, onChange, onError }: { view: Settings
           <Toggle label="Keep meeting audio files" help="About 115 MB per hour per side. The transcript, notes and summary are always kept." value={s.keepMeetingAudio} onChange={(v) => set("keepMeetingAudio", v)} />
           <Toggle label="Transcribe the recording again when a meeting ends" help="The live transcript keeps up by cutting every few seconds. Afterwards the saved audio is transcribed whole and replaces it." value={s.transcribeAfterMeeting} onChange={(v) => set("transcribeAfterMeeting", v)} />
           <Toggle label="Write running notes during a meeting" help="Every minute or so, a few bullets on what was just said." value={s.runningNotes} onChange={(v) => set("runningNotes", v)} />
+          <Toggle label="Show the call tracker during a meeting" help="A panel at the edge of the screen with questions put to you, promises made, and the latest notes. Left out of screen shares." value={s.callTracker} onChange={(v) => set("callTracker", v)} />
           <div class="field">
             <span class="label">
               Claude

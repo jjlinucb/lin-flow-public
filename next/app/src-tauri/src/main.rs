@@ -64,6 +64,7 @@ fn main() {
             build_main(&handle, settings.open_window_at_launch)?;
             build_pill(&handle)?;
             build_toast(&handle)?;
+            build_tracker(&handle)?;
             build_tray(&handle)?;
             if settings.show_hud {
                 show_pill(&handle);
@@ -121,6 +122,10 @@ fn main() {
             pill_layout,
             pill_moved,
             hide_pill,
+            tracker,
+            toggle_tracker,
+            tracker_hide,
+            tracker_open_note,
             pill_menu,
             quit,
         ])
@@ -165,6 +170,13 @@ fn on_event(app: &AppHandle, event: Event) {
                 if let Some(w) = app2.get_webview_window("toast") {
                     panel::show(&w);
                 }
+            });
+        }
+        Event::Note { event: NoteEvent::Recording { recording: true, .. } } if svc(app).ctx.settings().call_tracker => {
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                set_tracker_visible(&app2, true);
+                update_tray(&app2, None);
             });
         }
         Event::Note { event: NoteEvent::Recording { .. } } | Event::SettingsChanged => {
@@ -238,6 +250,30 @@ fn build_pill(app: &AppHandle) -> tauri::Result<()> {
 fn build_toast(app: &AppHandle) -> tauri::Result<()> {
     floating(app, "toast", "toast.html", TOAST_WIDTH, 80.0)?;
     Ok(())
+}
+
+const TRACKER_WIDTH: f64 = 320.0;
+const TRACKER_HEIGHT: f64 = 460.0;
+
+/// The call tracker, at the right edge of the screen near the top, where a call's own window
+/// rarely puts anything. Content protection leaves it out of screen shares and recordings: the
+/// Mac's sharingType none, Windows' display affinity.
+fn build_tracker(app: &AppHandle) -> tauri::Result<()> {
+    let w = floating(app, "tracker", "tracker.html", TRACKER_WIDTH, TRACKER_HEIGHT)?;
+    let _ = w.set_content_protected(true);
+    let (x, y, width, _) = screen(app);
+    let _ = w.set_position(LogicalPosition::new(x + width - TRACKER_WIDTH - 16.0, y + 48.0));
+    Ok(())
+}
+
+fn set_tracker_visible(app: &AppHandle, visible: bool) {
+    if let Some(w) = app.get_webview_window("tracker") {
+        if visible {
+            panel::show(&w);
+        } else {
+            panel::hide(&w);
+        }
+    }
 }
 
 /// The primary screen in logical points: its size, and where its usable area starts.
@@ -416,6 +452,26 @@ fn pill_moved(handle: AppHandle, app: State<'_, App>) {
         s.hud_x = Some(x);
         s.hud_y = Some(saved_y);
     });
+}
+
+#[tauri::command]
+fn tracker(app: State<'_, App>, id: String) -> linflow_core::meeting::tracker::Tracker {
+    app.svc.tracker(&id)
+}
+
+#[tauri::command]
+fn toggle_tracker(app: State<'_, App>, id: String, item: String) -> Cmd<linflow_core::meeting::tracker::Tracker> {
+    app.svc.toggle_tracker(&id, &item)
+}
+
+#[tauri::command]
+fn tracker_hide(handle: AppHandle) {
+    set_tracker_visible(&handle, false);
+}
+
+#[tauri::command]
+fn tracker_open_note(handle: AppHandle, id: String) {
+    navigate(&handle, &format!("note:{id}"));
 }
 
 #[tauri::command]
