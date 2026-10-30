@@ -15,6 +15,7 @@ pub mod net;
 pub mod notes;
 pub mod paths;
 pub mod readback;
+pub mod remote;
 pub mod repair;
 pub mod settings;
 pub mod sync;

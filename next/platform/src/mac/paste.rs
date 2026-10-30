@@ -5,8 +5,10 @@
 //!
 //! The dictation stays on this Mac and out of clipboard history: it sits on the clipboard for
 //! 0.4 s only to be pasted, kept off Universal Clipboard and marked for clipboard managers to
-//! skip.
+//! skip. A remote desktop app gets Control+V instead, pressed key by key, and longer to carry
+//! the text across (`linflow_core::remote` says why).
 
+use linflow_core::remote::Paste;
 use objc2::rc::Retained;
 use objc2::AnyThread;
 use objc2_app_kit::{NSPasteboard, NSPasteboardContentsOptions, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting};
@@ -32,7 +34,13 @@ extern "C" {
 const COMBINED_SESSION_STATE: i32 = 0;
 const HID_EVENT_TAP: u32 = 0;
 const KEY_V: u16 = 9;
+const KEY_CONTROL: u16 = 59;
 const FLAG_COMMAND: u64 = 0x0010_0000;
+/// Control, with the left Control key's device bit, as a real press of that key sets it.
+const FLAG_CONTROL: u64 = 0x0004_0001;
+/// Between the key events of a remote paste: the remote app forwards each event as it comes
+/// and can reorder ones that arrive together.
+const REMOTE_KEY_GAP: Duration = Duration::from_millis(15);
 
 /// The markers clipboard managers honour (nspasteboard.org): the content is short-lived and an
 /// app put it there, so neither belongs in a history of what John copied.
@@ -85,15 +93,19 @@ pub fn write_privately(text: &str, pb: &NSPasteboard) -> isize {
     pb.changeCount()
 }
 
-fn command_v() {
+/// Posts each (key, down, flags) in turn, `gap` apart.
+fn post_keys(keys: &[(u16, bool, u64)], gap: Duration) {
     unsafe {
         let source = CGEventSourceCreate(COMBINED_SESSION_STATE);
-        for down in [true, false] {
-            let e = CGEventCreateKeyboardEvent(source, KEY_V, down);
+        for (i, &(key, down, flags)) in keys.iter().enumerate() {
+            if i > 0 && !gap.is_zero() {
+                std::thread::sleep(gap);
+            }
+            let e = CGEventCreateKeyboardEvent(source, key, down);
             if e.is_null() {
                 continue;
             }
-            CGEventSetFlags(e, FLAG_COMMAND);
+            CGEventSetFlags(e, flags);
             CGEventPost(HID_EVENT_TAP, e);
             CFRelease(e);
         }
@@ -103,19 +115,41 @@ fn command_v() {
     }
 }
 
-/// Pastes `text` and puts John's clipboard back after `restore_after`, unless he copied
-/// something else in the meantime.
-pub fn paste(text: &str, restore_after: Duration) {
+/// V carrying the Command flag: every Mac app reads the flag, so no Command key event is needed.
+fn command_v() {
+    post_keys(&[(KEY_V, true, FLAG_COMMAND), (KEY_V, false, FLAG_COMMAND)], Duration::ZERO);
+}
+
+/// Control+V the long way, for a remote desktop app, which tracks modifiers by their own key
+/// events and would see a flagged V as a bare "v".
+fn control_v_keys() {
+    post_keys(
+        &[(KEY_CONTROL, true, FLAG_CONTROL), (KEY_V, true, FLAG_CONTROL), (KEY_V, false, FLAG_CONTROL), (KEY_CONTROL, false, 0)],
+        REMOTE_KEY_GAP,
+    );
+}
+
+/// Pastes `text` the way `how` says and puts John's clipboard back after `how.restore_after`,
+/// unless he copied something else in the meantime.
+pub fn paste(text: &str, how: Paste) {
     if text.is_empty() {
         return;
     }
     let pb = NSPasteboard::generalPasteboard();
     let snap = snapshot(&pb);
     let ours = write_privately(text, &pb);
-    command_v();
+    if !how.wait.is_zero() {
+        std::thread::sleep(how.wait);
+    }
+    if how.remote {
+        control_v_keys();
+    } else {
+        command_v();
+    }
     if snap.is_empty() {
         return;
     }
+    let restore_after = how.restore_after;
     std::thread::spawn(move || {
         std::thread::sleep(restore_after);
         let pb = NSPasteboard::generalPasteboard();

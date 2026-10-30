@@ -13,6 +13,7 @@ use crate::readback::Readback;
 use linflow_core::audio::{self, peak, SAMPLE_RATE, SAMPLE_RATE_F};
 use linflow_core::history::{self, HistoryEntry};
 use linflow_core::models;
+use linflow_core::remote::RemoteApps;
 use linflow_core::repair::SilentStreak;
 use linflow_platform::mic::Microphone;
 use linflow_platform::{App, Sound};
@@ -25,8 +26,6 @@ use std::time::{Duration, Instant};
 pub const MINIMUM_CLIP_SECONDS: f64 = 0.35;
 /// Below this peak the clip is silence.
 pub const SILENCE_PEAK: f32 = 0.01;
-/// How long the dictation sits on the clipboard before John's own goes back.
-pub const RESTORE_AFTER: Duration = Duration::from_millis(400);
 
 enum Cmd {
     Press(Instant),
@@ -429,10 +428,16 @@ impl Dictation {
         } else if std::env::var_os("LINFLOW_NO_PASTE").is_some() {
             log::info!("LINFLOW_NO_PASTE set; not pasting: {to_paste}");
         } else {
-            linflow_platform::paste(&to_paste, RESTORE_AFTER);
+            // A remote desktop app gets Control+V and more time for its clipboard to sync.
+            let front = linflow_platform::frontmost_app();
+            let how = RemoteApps::load(&self.ctx.data_dir).paste_for(front.as_ref().map(|a| a.id.as_str()));
+            if how.remote {
+                log::info!("paste: {} is a remote desktop; Control+V after {} ms", front.as_ref().map_or("", |a| a.id.as_str()), how.wait.as_millis());
+            }
+            linflow_platform::paste(&to_paste, how);
             // Then watch that field: a fix typed by hand becomes a dictionary correction.
             if settings.learn_corrections != linflow_core::learn::LearnMode::Off {
-                if let Some(app) = linflow_platform::frontmost_app() {
+                if let Some(app) = front {
                     self.readback.watch(&text, app.pid, &app.name, settings.learn_corrections);
                 }
             }
