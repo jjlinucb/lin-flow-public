@@ -2,7 +2,6 @@
 
 use crate::{App, OnChunk, OnRecord, OnSignal};
 use linflow_core::hotkey::Hotkey;
-use std::time::Duration;
 
 pub(crate) const UNSUPPORTED: &str = "Lin Flow runs on macOS and Windows.";
 
@@ -36,7 +35,7 @@ pub fn mic_users() -> Vec<String> {
     vec![]
 }
 
-pub fn paste(_text: &str, _restore_after: Duration) {}
+pub fn paste(_text: &str, _how: linflow_core::remote::Paste) {}
 
 pub fn copy(_text: &str) {}
 

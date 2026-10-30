@@ -146,9 +146,11 @@ pub fn paste(args: &[String]) {
     if args.len() < 2 {
         usage()
     }
-    linflow_platform::paste(&args[1..].join(" "), Duration::from_millis(400));
+    let front = linflow_platform::frontmost_app();
+    let how = linflow_core::remote::RemoteApps::load(&linflow_core::paths::data_dir()).paste_for(front.as_ref().map(|a| a.id.as_str()));
+    linflow_platform::paste(&args[1..].join(" "), how);
     // The clipboard is put back on a timer: stay until it has been.
-    std::thread::sleep(Duration::from_millis(700));
+    std::thread::sleep(how.restore_after + Duration::from_millis(300));
 }
 
 /// `version`: this build and the commit it came from.
