@@ -136,6 +136,10 @@ fn main() {
         // Closing the window hides it; only Quit quits.
         RunEvent::ExitRequested { api, code: None, .. } => api.prevent_exit(),
         RunEvent::Exit => shutdown(app),
+        // Clicking the app in the Dock or Finder after closing its window brings the window back
+        // (John, 2026-11-02: it never came back without a quit and relaunch).
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main(app, None),
         _ => {}
     });
 }
@@ -291,20 +295,42 @@ fn screen(app: &AppHandle) -> (f64, f64, f64, f64) {
     }
 }
 
+/// The primary screen whole, menu bar and Dock included, in logical points.
+fn whole_screen(app: &AppHandle) -> (f64, f64, f64, f64) {
+    match app.primary_monitor().ok().flatten() {
+        Some(m) => {
+            let scale = m.scale_factor();
+            (m.position().x as f64 / scale, m.position().y as f64 / scale, m.size().width as f64 / scale, m.size().height as f64 / scale)
+        }
+        None => (0.0, 0.0, 1440.0, 900.0),
+    }
+}
+
 /// The saved spot when there is one, otherwise bottom center. Saved in the Mac app's own
-/// convention on the Mac (from the bottom left of the main screen), so the setting carries over
-/// at cutover; top left elsewhere.
+/// convention on the Mac (the pill's bottom edge, up from the bottom of the main screen), so the
+/// setting carries over at cutover; top left elsewhere. The whole screen counts, menu bar
+/// included: John keeps the pill level with the menu bar, and clamping to the usable area pushed
+/// it down under it (2026-11-02).
 fn place_pill(app: &AppHandle, w: &WebviewWindow, width: f64) {
     let s = svc(app).ctx.settings();
     let (x0, y0, sw, sh) = screen(app);
+    let (fx, fy, fw, fh) = whole_screen(app);
     let (x, y) = match (s.hud_x, s.hud_y) {
-        (Some(x), Some(y)) if cfg!(target_os = "macos") => (x, y0 + sh - y - PILL_HEIGHT + y0),
+        (Some(x), Some(y)) if cfg!(target_os = "macos") => (x, from_bottom(fy, fh, y)),
         (Some(x), Some(y)) => (x, y),
         _ => (x0 + (sw - width) / 2.0, y0 + sh - PILL_BOTTOM_MARGIN - PILL_HEIGHT),
     };
-    let x = x.clamp(x0 - width + 40.0, x0 + sw - 40.0);
-    let y = y.clamp(y0, y0 + sh - PILL_HEIGHT);
+    // Windows keeps it off the taskbar, as before.
+    let (cx, cy, cw, ch) = if cfg!(target_os = "macos") { (fx, fy, fw, fh) } else { (x0, y0, sw, sh) };
+    let x = x.clamp(cx - width + 40.0, cx + cw - 40.0);
+    let y = y.clamp(cy, cy + ch - PILL_HEIGHT);
     let _ = w.set_position(LogicalPosition::new(x, y));
+}
+
+/// The Mac's saved height (bottom edge up from the screen's bottom) to a top edge down from its
+/// top, and back: the same sum either way.
+fn from_bottom(top: f64, height: f64, v: f64) -> f64 {
+    top + height - v - PILL_HEIGHT
 }
 
 fn show_pill(app: &AppHandle) {
@@ -448,8 +474,8 @@ fn pill_moved(handle: AppHandle, app: State<'_, App>) {
     let Ok(pos) = w.outer_position() else { return };
     let scale = w.scale_factor().unwrap_or(1.0);
     let (x, y) = (pos.x as f64 / scale, pos.y as f64 / scale);
-    let (_, y0, _, sh) = screen(&handle);
-    let saved_y = if cfg!(target_os = "macos") { y0 + sh - y - PILL_HEIGHT + y0 } else { y };
+    let (_, fy, _, fh) = whole_screen(&handle);
+    let saved_y = if cfg!(target_os = "macos") { from_bottom(fy, fh, y) } else { y };
     app.svc.ctx.update_settings(|s| {
         s.hud_x = Some(x);
         s.hud_y = Some(saved_y);
