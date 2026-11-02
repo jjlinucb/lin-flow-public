@@ -115,6 +115,10 @@ foreach ($dir in $programs, $startup, [Environment]::GetFolderPath('Desktop')) {
 foreach ($dir in $programs, $startup) {
     $lnk = $shell.CreateShortcut((Join-Path $dir 'Lin Flow.lnk'))
     $lnk.TargetPath = $exe
+    # Saving over an existing shortcut keeps its old icon. The 10-26 cut-over build's pointed at
+    # lin-flow-next-large.ico, gone with that install, so the taskbar showed a blank page
+    # (MBC262, 2026-11-02). The taskbar takes its icon from this shortcut.
+    $lnk.IconLocation = "$exe,0"
     # Not $To: Update moves that folder, and a process started in it holds it.
     $lnk.WorkingDirectory = $env:LOCALAPPDATA
     $lnk.Description = 'Lin Flow'
