@@ -49,6 +49,9 @@ carry on.
 - **Update starts PowerShell with a hidden window only** (`powershell()` in
   `service/src/update.rs`). Adding DETACHED_PROCESS makes Windows PowerShell 5.1 exit without
   running the swap, so Lin Flow quits and doesn't come back. A Windows test starts it the same way.
+- **The taskbar icon is set by hand** (`set_taskbar_icon` in `app/src-tauri/src/main.rs`). Tauri
+  sets only a window's small icon, and the taskbar shows the big one, so without it the main
+  window was a blank page on the taskbar (MBC262, 2026-11-02).
 - **Tray icons are per platform** (`TRAY_IDLE` and `TRAY_BUSY` in `app/src-tauri/src/main.rs`).
   A new Mac tray glyph doesn't change Windows, and the reverse.
 - Mac-only and Windows-only code stays behind `cfg`. Anything shared runs on both, so CI's
