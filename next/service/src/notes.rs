@@ -12,7 +12,7 @@ use linflow_core::meeting::tracker::Tracker;
 use linflow_core::audio_export::{self, Format};
 use linflow_core::notes::{follow_title, transcript_text, AudioExportRecord, MeetingNote, QuestionTurn, TranscriptSegment};
 use std::collections::{HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// The local model every meeting uses, through Ollama. Nothing from a meeting leaves the
@@ -377,6 +377,29 @@ impl NoteWork {
         Ok(())
     }
 
+    /// A work call's MP3, into the work OneDrive's `Lin Flow Recordings` (John, 2026-11-02: "work
+    /// call should"). Named after the meeting, so a resumed call writes over its own earlier file.
+    /// Logs and returns when there is no work OneDrive on this computer.
+    pub fn save_work_audio(&self, id: &str) {
+        let Some(dir) = work_audio_folder() else {
+            log::info!("notes: {id} was a work call, but this computer has no work OneDrive");
+            return;
+        };
+        let Some(note) = self.ctx.notes.load(id) else { return };
+        if !self.ctx.notes.has_audio(id) {
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            log::warn!("notes: could not make {}: {e}", dir.display());
+            return;
+        }
+        let to = dir.join(format!("{}.mp3", file_name(&note.title)));
+        match self.save_audio(id, &to, Format::Mp3) {
+            Ok(()) => log::info!("notes: {id} work call saved to {}", to.display()),
+            Err(e) => log::warn!("notes: {id} work call audio: {e}"),
+        }
+    }
+
     pub fn is_saving_audio(&self, id: &str) -> bool {
         self.saving_audio.lock().unwrap().contains(id)
     }
@@ -470,8 +493,64 @@ pub fn speakers(segments: &[TranscriptSegment]) -> Vec<String> {
     out
 }
 
+/// Where work calls' MP3s go: `Lin Flow Recordings` in the work OneDrive. On the Mac that is the
+/// OneDrive under `~/Library/CloudStorage` that is not the personal one; on Windows, the folder
+/// OneDrive names in `OneDriveCommercial`.
+pub const WORK_AUDIO_FOLDER: &str = "Lin Flow Recordings";
+
+fn work_audio_folder() -> Option<PathBuf> {
+    let commercial = std::env::var("OneDriveCommercial").ok().filter(|v| !v.is_empty());
+    let cloud = dirs_home().map(|h| h.join("Library").join("CloudStorage"));
+    let entries: Vec<String> = cloud
+        .as_ref()
+        .and_then(|c| std::fs::read_dir(c).ok())
+        .map(|r| r.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    work_onedrive(commercial.as_deref(), cloud.as_deref(), &entries).map(|d| d.join(WORK_AUDIO_FOLDER))
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// The work OneDrive: Windows' own pointer when it has one, otherwise the first `OneDrive-*`
+/// folder in the Mac's CloudStorage that is not `OneDrive-Personal`.
+pub fn work_onedrive(commercial: Option<&str>, cloud: Option<&Path>, entries: &[String]) -> Option<PathBuf> {
+    if let Some(c) = commercial {
+        return Some(PathBuf::from(c));
+    }
+    let mut work: Vec<&String> = entries.iter().filter(|e| e.starts_with("OneDrive-") && e.as_str() != "OneDrive-Personal").collect();
+    work.sort();
+    Some(cloud?.join(work.first()?))
+}
+
+/// A meeting title as a file name OneDrive takes: no slashes, colons or the other characters
+/// Windows refuses ("1:34 PM" becomes "1.34 PM").
+pub fn file_name(title: &str) -> String {
+    let name: String = title.chars().map(|c| match c {
+        ':' => '.',
+        '/' | '\\' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+        c if c.is_control() => ' ',
+        c => c,
+    }).collect();
+    let name = name.trim().trim_end_matches('.').trim().to_string();
+    if name.is_empty() { "Meeting".into() } else { name }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_work_call_goes_to_the_work_onedrive_under_a_name_it_takes() {
+        let cloud = Path::new("/Users/x/Library/CloudStorage");
+        let entries = vec!["OneDrive-Personal".to_string(), "OneDrive-Acme".to_string(), "GoogleDrive-x".to_string()];
+        assert_eq!(work_onedrive(None, Some(cloud), &entries), Some(cloud.join("OneDrive-Acme")));
+        assert_eq!(work_onedrive(None, Some(cloud), &["OneDrive-Personal".to_string()]), None, "the personal one is never work");
+        assert_eq!(work_onedrive(Some(r"C:\Users\x\OneDrive - Acme"), None, &[]), Some(PathBuf::from(r"C:\Users\x\OneDrive - Acme")));
+        assert_eq!(file_name("Meeting Nov 2, 1:34 PM"), "Meeting Nov 2, 1.34 PM");
+        assert_eq!(file_name("Q3 / Q4 plan? <draft>"), "Q3 - Q4 plan- -draft-");
+        assert_eq!(file_name("  ..  "), "Meeting");
+    }
+
     use super::*;
     use crate::events::Sink;
 
