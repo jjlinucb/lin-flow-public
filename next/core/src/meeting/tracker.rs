@@ -25,7 +25,7 @@ pub const CONTEXT_WORDS: usize = 120;
 /// Between a question and its angle, and between who and what.
 pub const SEPARATOR: &str = "::";
 
-pub const INSTRUCTIONS: &str = "You keep a live tracker for John during a call. Lines look like \"[m:ss] Speaker: words\". \"You\" is John's microphone and \"Others\" is everyone else on the call; the transcript is machine speech recognition, so read through misheard words. Earlier lines are context only: take items from the newest stretch. Two lists. questions: a question someone in Others put to John in the newest stretch, asked of him or of the group expecting his answer, that he has not answered yet. A question he put off (\"let me think\", \"I'll get back to you\") is still open: list it here, never as an action. Each entry is the question in plain words ending with a question mark, then \" :: \", then one sentence on how John could answer: the angle to take or what to mention, from the call where it can. Not rhetorical questions, not small talk like how are you, not questions John asked. actions: something a person agreed to do, in the newest stretch. Each entry is who (You, or a name said in the call, or Others), then \" :: \", then what, under 15 words. Write each commitment once, for the person who agreed to it. Only a firm yes: not something asked of someone who has not agreed yet, not an idea, not something put off (\"at some point\", \"not today\"). Most stretches have nothing for either list. Never add a name, a number or a date the transcript does not contain. No em dashes.";
+pub const INSTRUCTIONS: &str = "You keep a live tracker for John during a call. Lines look like \"[m:ss] Speaker: words\". \"You\" is John's microphone and \"Others\" is everyone else on the call; the transcript is machine speech recognition, so read through misheard words. Earlier lines are context only: take items from the newest stretch. Two lists. questions: a question someone in Others put to John in the newest stretch, by name or straight to him, that he has not answered yet. Not a question asked during a talk, a lesson, a story or a presentation, even to the room; not one put to someone else by name; not an invitation to start (\"whenever you are ready\"). A question he put off (\"let me think\", \"I'll get back to you\") is still open: list it here, never as an action. Each entry is the question in plain words ending with a question mark, then \" :: \", then one sentence on how John could answer: the angle to take or what to mention, from the call where it can. Not rhetorical questions, not small talk like how are you, not questions John asked. actions: something a person agreed to do, in the newest stretch. Each entry is who (You, or a name said in the call, or Others), then \" :: \", then what, under 15 words. Write each commitment once, for the person who agreed to it. Only a firm yes: not something asked of someone who has not agreed yet, not an idea, not something put off (\"at some point\", \"not today\"). Most stretches have nothing for either list. Never add a name, a number or a date the transcript does not contain. No em dashes.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -163,11 +163,12 @@ pub fn pass(model: &mut dyn NoteModel, context: &str, fresh: &str, tracker: &Tra
     let source = format!("{context} {fresh}");
     let mut out = vec![];
     let questions = lists.first().cloned().unwrap_or_default();
-    let kept = keep(questions.iter().map(|q| split_question(q)).filter(|(q, angle)| !angle.is_empty() && !small_talk(q) && grounded(q, &source)).collect(), &tracker.texts(Kind::Question));
+    let john_spoke = fresh.contains("] You:");
+    let kept = keep(questions.iter().map(|q| split_question(q)).filter(|(q, angle)| !angle.is_empty() && asked_of_john(q, john_spoke) && !small_talk(q) && grounded(q, &source)).collect(), &tracker.texts(Kind::Question));
     out.extend(kept.into_iter().map(|(text, detail)| Item { id: String::new(), kind: Kind::Question, at, text, detail, done: false }));
     let actions = lists.get(1).cloned().unwrap_or_default();
     let actions: Vec<(String, String)> = actions.iter().map(|a| split(a)).map(|(who, what)| if what.is_empty() { (String::new(), who) } else { (who, what) }).collect();
-    let actions = actions.into_iter().filter(|(_, what)| grounded(what, &source)).map(|(who, what)| (what, owner(&who, &source))).collect();
+    let actions = actions.into_iter().filter(|(_, what)| a_task(what) && grounded(what, &source)).map(|(who, what)| (what, owner(&who, &source))).collect();
     out.extend(keep(actions, &tracker.texts(Kind::Action)).into_iter().map(|(text, detail)| Item { id: String::new(), kind: Kind::Action, at, text, detail, done: false }));
     Ok(out)
 }
@@ -232,6 +233,35 @@ fn small_talk(question: &str) -> bool {
     SMALL_TALK.iter().any(|s| q.contains(s))
 }
 
+/// A question for John ends in a question mark and asks him: it says "you" or his name, or he
+/// spoke in the stretch it came from, and it is not opened with someone else's name ("So Dana,
+/// ready?"). The 11-01 call's tracker listed questions from a talk John only listened to ("How
+/// did the Americans support ...?") and cues to other people.
+fn asked_of_john(question: &str, john_spoke: bool) -> bool {
+    let q = lowercased(question);
+    let to_him = q.split(|c: char| !c.is_alphanumeric() && c != '\'').any(|w| matches!(w, "you" | "your" | "you're" | "you've" | "you'll" | "john"));
+    let opener = question.trim_start_matches(|c: char| !c.is_alphanumeric()).split(',').next().unwrap_or("");
+    let opener = opener.strip_prefix("So ").or_else(|| opener.strip_prefix("Okay ")).unwrap_or(opener).trim();
+    let other_name = question.contains(',') && !opener.contains(' ') && opener.chars().next().is_some_and(|c| c.is_uppercase()) && opener != "John" && !NOT_A_NAME.contains(&lowercased(opener).as_str());
+    trim_ws_nl(question).ends_with('?') && (to_him || john_spoke) && !other_name
+}
+
+/// Words that open a question to anyone ("Okay, can you ...?"), never a name.
+const NOT_A_NAME: &[&str] = &["so", "okay", "ok", "hey", "hi", "also", "well", "yes", "yeah", "now", "and", "alright", "sorry", "right", "actually", "anyway", "quick", "then", "but"];
+
+/// Words a task never starts with: a task starts with what to do. The 11-01 call's to-dos held
+/// lines copied out of the talk ("No, it's not necessary ...", "And then you ...", "I won't say.").
+/// So are the verbs of a talk being given, which the model turns into tasks for its listeners
+/// ("continue discussing ...", "reflect on ..."): only those, since "provide" or "explain" can
+/// start a real task.
+const NOT_A_TASK: &[&str] = &["continue", "reflect", "pray", "i", "i'm", "i'll", "i've", "we", "we're", "you", "you're", "he", "she", "they", "it", "it's", "and", "but", "so", "no", "yes", "yeah", "okay", "then", "the", "a", "this", "that", "there", "if", "because"];
+
+fn a_task(what: &str) -> bool {
+    let w = trim_ws_nl(what);
+    let first = lowercased(w.split_whitespace().next().unwrap_or("")).trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_string();
+    !w.ends_with('?') && !NOT_A_TASK.contains(&first.as_str())
+}
+
 /// Drops what is already on the tracker or repeats an earlier entry of this pass.
 fn keep(entries: Vec<(String, String)>, existing: &[String]) -> Vec<(String, String)> {
     let texts: Vec<String> = entries.iter().map(|(t, _)| t.clone()).collect();
@@ -244,16 +274,19 @@ fn keep(entries: Vec<(String, String)>, existing: &[String]) -> Vec<(String, Str
     })
 }
 
-/// "You" and "Others" as written; John is "You"; a name the call said stays; anything else is
-/// "Others", since the model may not invent a person.
+/// "You" and "Others" as written; John is "You"; a task for the whole group is "Everyone"; a name
+/// the call said stays; anything else is "Others", since the model may not invent a person.
 fn owner(who: &str, source: &str) -> String {
     let w = who.trim();
     let lower = lowercased(w);
-    if lower.is_empty() || lower == "others" || lower == "they" || lower == "someone" {
+    if lower.is_empty() || lower == "others" || lower == "they" || lower == "someone" || lower == "we" || lower == "us" {
         return "Others".into();
     }
     if lower == "you" || lower == "john" || lower == "i" || lower == "me" {
         return "You".into();
+    }
+    if matches!(lower.as_str(), "everyone" | "everybody" | "all" | "the team" | "team" | "the group" | "group") {
+        return "Everyone".into();
     }
     // A name: capitalized, and said in the call.
     let capitalized = w.chars().next().is_some_and(|c| c.is_uppercase());
@@ -338,6 +371,22 @@ mod tests {
         t.add(vec![Item { id: String::new(), kind: Kind::Question, at: 65.0, text: "Ready by Friday?".into(), detail: "Give a range.".into(), done: false }]);
         assert_eq!(t.markdown(), "## Asked of you\n\n- [ ] [1:05] Ready by Friday? *Give a range.*\n\n## To do\n\n- [x] [0:05] You: send the logs\n\n");
         assert_eq!(Tracker::default().markdown(), "");
+    }
+
+    #[test]
+    fn only_questions_asked_of_john_and_tasks_to_do_after() {
+        let talk = "[9:00] Others: So how did the old kingdom fall? Mostly through famine and war.\n[9:20] Others: So Dana, whenever you are ready, take it away?\n[9:30] Others: Everyone, finish your two minute story this week. Check in now if you are here. No, it's not needed to bring chairs.";
+        let answer = r#"{"questions":["How did the old kingdom fall? :: Mention famine.","So Dana, whenever you are ready, take it away? :: Start."],"actions":["Everyone :: finish your two minute story this week","You :: Check in now if you are here?","You :: No, it's not needed to bring chairs"]}"#;
+        let mut m = Scripted(vec![answer.into()], vec![]);
+        let items = pass(&mut m, "", talk, &Tracker::default(), "Team night", 540.0).unwrap();
+        assert_eq!(items.len(), 1, "{items:?}");
+        assert_eq!((items[0].text.as_str(), items[0].detail.as_str()), ("finish your two minute story this week", "Everyone"));
+        assert!(asked_of_john("John, can you send it by Friday?", false));
+        assert!(asked_of_john("Can it land by Friday?", true), "he was in the conversation");
+        assert!(!asked_of_john("Can it land by Friday", true), "no question mark");
+        assert!(asked_of_john("Okay, can you send the deck by Friday?", false) && asked_of_john("Hey, are you joining?", false));
+        assert!(a_task("provide the budget numbers by Friday") && !a_task("continue the slides"));
+        assert_eq!(owner("We", "we will send it"), "Others", "we is not the whole call");
     }
 
     #[test]
