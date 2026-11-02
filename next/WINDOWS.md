@@ -59,7 +59,7 @@ carry on.
 | Computer | Talk key | Sync name |
 |---|---|---|
 | MBC253, Multibeam desktop | middle mouse button | MB Desktop MBC253 |
-| MBC262, Multibeam laptop | Right Ctrl + Right Alt | its own `sync.env` |
+| MBC262, Multibeam laptop | Left Ctrl + Left Alt | MB Laptop MBC262 |
 | Mac | Fn | John Macbook |
 
 The talk key lives in each computer's `settings.json` and survives updates. A cut-over build with
