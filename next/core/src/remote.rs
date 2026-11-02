@@ -27,7 +27,8 @@ pub const BUILT_IN: [&str; 1] = ["com.microsoft.rdc.macos"];
 /// How long a local paste leaves the dictation on the clipboard before John's own goes back.
 pub const LOCAL_RESTORE: Duration = Duration::from_millis(400);
 /// How long a remote app gets to notice the new clipboard and send it across before the paste.
-pub const REMOTE_WAIT: Duration = Duration::from_millis(300);
+/// 300 ms was not always enough: on 2026-11-02 Windows App pasted John's old clipboard twice.
+pub const REMOTE_WAIT: Duration = Duration::from_millis(1000);
 /// A remote app reads the clipboard when the far side asks for it, a network round trip after
 /// the paste, so the dictation stays this long.
 pub const REMOTE_RESTORE: Duration = Duration::from_secs(3);
