@@ -216,6 +216,7 @@ fn build_main(app: &AppHandle, visible: bool) -> tauri::Result<()> {
         .min_inner_size(900.0, 560.0)
         .visible(visible)
         .build()?;
+    set_taskbar_icon(&w);
     let w2 = w.clone();
     w.on_window_event(move |e| {
         if let WindowEvent::CloseRequested { api, .. } = e {
@@ -225,6 +226,31 @@ fn build_main(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     });
     Ok(())
 }
+
+/// Tauri gives a window only its small icon (tao's `set_window_icon` is ICON_SMALL), and the
+/// Windows taskbar shows the big one, so the main window sat on the taskbar as a blank page
+/// (MBC262, 2026-11-02). This hands it the exe's own icon as the big one.
+#[cfg(windows)]
+fn set_taskbar_icon(w: &WebviewWindow) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, IMAGE_ICON, LR_SHARED, SM_CXICON, SM_CYICON, WM_SETICON,
+    };
+    let Ok(h) = w.hwnd() else { return };
+    unsafe {
+        let Ok(module) = GetModuleHandleW(PCWSTR::null()) else { return };
+        // The id tauri-build gives the app icon in the exe's resources (MAKEINTRESOURCE).
+        let id = PCWSTR(tauri::utils::platform::WINDOWS_APP_ICON_RESOURCE_ID as usize as *const u16);
+        let (cx, cy) = (GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+        let Ok(icon) = LoadImageW(Some(HINSTANCE(module.0)), id, IMAGE_ICON, cx, cy, LR_SHARED) else { return };
+        let _ = SendMessageW(HWND(h.0 as _), WM_SETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(icon.0 as isize)));
+    }
+}
+
+#[cfg(not(windows))]
+fn set_taskbar_icon(_w: &WebviewWindow) {}
 
 fn floating(app: &AppHandle, label: &str, page: &str, width: f64, height: f64) -> tauri::Result<WebviewWindow> {
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into()))
