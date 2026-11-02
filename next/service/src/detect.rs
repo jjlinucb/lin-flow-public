@@ -61,7 +61,11 @@ impl Detection {
             if recording.is_none() {
                 *self.stop_at.lock().unwrap() = None;
             }
-            let observation = Observation { at: clock.elapsed().as_secs_f64(), mic_users: linflow_platform::mic_users(), recording };
+            let mic_users = linflow_platform::mic_users();
+            if recording.is_some() {
+                self.meetings.saw_on_mic(&mic_users);
+            }
+            let observation = Observation { at: clock.elapsed().as_secs_f64(), mic_users, recording };
             for event in detector.observe(&observation) {
                 self.handle(event);
             }

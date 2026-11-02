@@ -142,6 +142,8 @@ impl Track {
 struct Active {
     note_id: String,
     app: Option<String>,
+    /// Teams was on the microphone at some point: a work call, whose MP3 goes to the work OneDrive.
+    work_call: bool,
     started: Instant,
     previous: f64,
     io: Sender<Io>,
@@ -198,6 +200,17 @@ impl Meetings {
     }
 
     /// What the detector needs to know about the recording, or None when nothing records.
+    /// Who holds the microphone, read by the detector while a note records. Teams among them makes
+    /// the recording a work call.
+    pub fn saw_on_mic(&self, users: &[String]) {
+        let mut guard = self.active.lock().unwrap();
+        let Some(a) = guard.as_mut() else { return };
+        if !a.work_call && users.iter().any(|u| linflow_core::meeting::detect::is_work_call(u)) {
+            a.work_call = true;
+            log::info!("meeting: Teams is on the call; its MP3 will also go to the work OneDrive");
+        }
+    }
+
     pub fn observed(&self) -> Option<Observed> {
         let guard = self.active.lock().unwrap();
         let a = guard.as_ref()?;
@@ -340,6 +353,7 @@ impl Meetings {
         *guard = Some(Active {
             note_id: id.clone(),
             app: app.map(|a| a.to_lowercase()),
+            work_call: app.is_some_and(linflow_core::meeting::detect::is_work_call),
             started: now,
             previous,
             io: io_tx,
@@ -391,6 +405,7 @@ impl Meetings {
         a.notes_stop.store(true, Ordering::Relaxed);
         let notes_thread = a.notes_thread.take();
         let tracker_thread = a.tracker_thread.take();
+        let work_call = a.work_call;
         drop(a);
         if quitting {
             return Some(id);
@@ -405,6 +420,9 @@ impl Meetings {
             // twice.
             for t in [notes_thread, tracker_thread].into_iter().flatten() {
                 let _ = t.join();
+            }
+            if work_call {
+                work.save_work_audio(&note_id);
             }
             if settings.keep_meeting_audio && settings.transcribe_after_meeting && ctx.notes.has_audio(&note_id) {
                 work.transcribe_from_audio(&note_id, true);
