@@ -4,7 +4,7 @@
 // and it is left out of screen shares. It stays up after the call ends until it is closed.
 
 import { render } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { call, clock, onEvent, startDragging, type NoteDetail, type StatusView, type Tracker, type TrackerItem } from "./api";
 import { Close } from "./icons";
 import "./styles.css";
@@ -30,30 +30,53 @@ function Panel() {
   const [notes, setNotes] = useState("");
   const [showDone, setShowDone] = useState(false);
 
+  // What the panel last loaded, for the status check below without stale closures.
+  const shown = useRef<{ id: string | null; recording: boolean }>({ id: null, recording: false });
+
   const load = (note: string) => {
+    shown.current = { id: note, recording: true };
     setId(note);
     call<NoteDetail | null>("note", { id: note }).then((d) => {
       if (!d) return;
       setTitle(d.note.title);
       setNotes(d.runningNotes);
       setRecording(d.recording);
+      shown.current = { id: note, recording: d.recording };
     });
     call<Tracker>("tracker", { id: note }).then(setTracker);
   };
 
   useEffect(() => {
-    call<StatusView>("status").then((s) => s.recordingNote && load(s.recordingNote));
+    // The panel is built hidden when the app starts, and a hidden page can miss the event that a
+    // recording began: on 2026-11-02 it sat on "Call ended" through a whole call while the tracker
+    // filled tracker.json. So it also asks, when it is shown and every few seconds.
+    const sync = () =>
+      call<StatusView>("status").then((s) => {
+        const now = s.recordingNote ?? null;
+        if (now && (now !== shown.current.id || !shown.current.recording)) load(now);
+        if (!now && shown.current.recording) {
+          shown.current = { ...shown.current, recording: false };
+          setRecording(false);
+        }
+      });
+    sync();
+    const tick = window.setInterval(sync, 5000);
+    const onShow = () => document.visibilityState === "visible" && sync();
+    document.addEventListener("visibilitychange", onShow);
     const off = onEvent((e) => {
       if (e.type !== "note") return;
       const n = e.event;
       if (n.type === "recording") {
         setRecording(n.recording);
+        shown.current = { ...shown.current, recording: n.recording };
         if (n.recording) load(n.id);
       }
       if (n.type === "tracker") setId((cur) => (cur === n.id ? (setTracker(n.tracker), cur) : cur));
       if (n.type === "runningNotes") setId((cur) => (cur === n.id ? (setNotes(n.text), cur) : cur));
     });
     return () => {
+      window.clearInterval(tick);
+      document.removeEventListener("visibilitychange", onShow);
       off.then((f) => f());
     };
   }, []);
