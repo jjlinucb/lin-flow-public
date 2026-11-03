@@ -78,10 +78,23 @@ pub struct HotkeyListener {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+/// The modifier flags the tap last saw. The command key is read from here as well as from the
+/// session's state: after the 2026-11-03 10:19 install, CGEventSourceFlagsState in the app stopped
+/// showing Shift held with Fn, while the tap's own flagsChanged events still carry it.
+static TAP_FLAGS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub(crate) fn tap_flags() -> u64 {
+    TAP_FLAGS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn event_of(kind: u32, event: CGEventRef) -> Option<HotkeyEvent> {
     unsafe {
         match kind {
-            FLAGS_CHANGED => Some(HotkeyEvent::from_mac_flags(CGEventGetFlags(event), CGEventGetIntegerValueField(event, FIELD_KEYCODE) as u32)),
+            FLAGS_CHANGED => {
+                let flags = CGEventGetFlags(event);
+                TAP_FLAGS.store(flags, std::sync::atomic::Ordering::Relaxed);
+                Some(HotkeyEvent::from_mac_flags(flags, CGEventGetIntegerValueField(event, FIELD_KEYCODE) as u32))
+            }
             KEY_DOWN | KEY_UP => Some(HotkeyEvent::Key {
                 code: CGEventGetIntegerValueField(event, FIELD_KEYCODE) as u32,
                 down: kind == KEY_DOWN,
