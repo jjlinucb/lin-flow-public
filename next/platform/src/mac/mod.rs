@@ -65,7 +65,8 @@ extern "C" {
 }
 
 /// Whether a modifier is held right now, on either side: "shift", "control", "option" or
-/// "command". Read from the whole session, so it works from any thread at any moment.
+/// "command". Read from the session's state and from the talk key's own tap, so it works from any
+/// thread at any moment.
 pub fn modifier_held(name: &str) -> bool {
     let mask = match name {
         "shift" => 0x0002_0000,
@@ -75,6 +76,6 @@ pub fn modifier_held(name: &str) -> bool {
         _ => return false,
     };
     // 0 is kCGEventSourceStateCombinedSessionState.
-    let flags = unsafe { CGEventSourceFlagsState(0) };
+    let flags = unsafe { CGEventSourceFlagsState(0) } | hotkey::tap_flags();
     flags & mask != 0
 }

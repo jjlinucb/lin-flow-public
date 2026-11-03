@@ -152,7 +152,10 @@ impl Dictation {
     fn audio_loop(self: Arc<Self>, rx: Receiver<Cmd>, work: Sender<Job>) {
         let mut pressed = false;
         let mut command_key = false;
-        let key_held = |d: &Dictation| command::Hook::load(&d.ctx.data_dir).is_some_and(|h| h.key_held());
+        // The command key's name, read once per take; while it records, it is checked every tick,
+        // so Shift counts if it is down at any point, not only as Fn goes down or up.
+        let mut key_name: Option<String> = None;
+        let held = |name: &Option<String>| name.as_deref().is_some_and(linflow_platform::modifier_held);
         let mut mic: Option<Microphone> = None;
         let mut mic_opened_at = Instant::now();
         let mut key_at = Instant::now();
@@ -166,6 +169,7 @@ impl Dictation {
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(c) => c,
                     Err(RecvTimeoutError::Timeout) => {
+                        command_key |= held(&key_name);
                         self.ctx.emit(Event::Level { level: f32::from_bits(level.load(Ordering::Relaxed)) });
                         continue;
                     }
@@ -189,7 +193,8 @@ impl Dictation {
                     }
                     pressed = true;
                     key_at = at;
-                    command_key = key_held(&self);
+                    key_name = command::Hook::load(&self.ctx.data_dir).and_then(|h| h.key);
+                    command_key = held(&key_name);
                     // The previous dictation's readback keeps running: two dictations into the
                     // same box inside 15 s is normal, and a fix to the first must still count.
                     target = linflow_platform::frontmost_app();
@@ -227,7 +232,10 @@ impl Dictation {
                         continue;
                     }
                     pressed = false;
-                    command_key |= key_held(&self);
+                    command_key |= held(&key_name);
+                    if let Some(name) = &key_name {
+                        log::info!("command key {name}: {}", if command_key { "held" } else { "not held" });
+                    }
                     let (device, first_audio) = match mic.take() {
                         Some(m) => {
                             let device = Some(m.device.clone());
