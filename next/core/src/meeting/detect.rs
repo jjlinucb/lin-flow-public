@@ -57,6 +57,10 @@ pub const CALL_APPS: &[(&str, &str)] = &[
     ("us.zoom.xos", "Zoom"),
     ("zoom.exe", "Zoom"),
     ("com.microsoft.teams2", "Teams"),
+    // New Teams on the Mac opens the microphone from a helper inside its bundle, not the app
+    // itself, so a Teams call went unseen (2026-11-03): no offer to record, no work MP3.
+    ("com.microsoft.teams2.helper", "Teams"),
+    ("com.microsoft.teams2.modulehost", "Teams"),
     ("com.microsoft.teams", "Teams"),
     ("ms-teams.exe", "Teams"),
     ("teams.exe", "Teams"),
@@ -268,6 +272,7 @@ mod tests {
     #[test]
     fn only_teams_is_a_work_call() {
         assert!(is_work_call("com.microsoft.teams2") && is_work_call("MS-Teams.exe"));
+        assert!(is_work_call("com.microsoft.teams2.helper") && is_work_call("com.microsoft.teams2.modulehost"));
         assert!(!is_work_call("us.zoom.xos") && !is_work_call("com.google.Chrome"));
     }
 
