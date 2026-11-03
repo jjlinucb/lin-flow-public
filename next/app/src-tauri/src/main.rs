@@ -64,6 +64,7 @@ fn main() {
             build_main(&handle, settings.open_window_at_launch)?;
             build_pill(&handle)?;
             build_toast(&handle)?;
+            build_tracker(&handle)?;
             build_tray(&handle)?;
             if settings.show_hud {
                 show_pill(&handle);
@@ -86,6 +87,7 @@ fn main() {
             remove_term,
             add_rule,
             remove_rule,
+            edit_rule,
             accept_rule,
             dismiss_rule,
             settings_view,
@@ -121,6 +123,10 @@ fn main() {
             pill_layout,
             pill_moved,
             hide_pill,
+            tracker,
+            toggle_tracker,
+            tracker_hide,
+            tracker_open_note,
             pill_menu,
             quit,
         ])
@@ -130,6 +136,10 @@ fn main() {
         // Closing the window hides it; only Quit quits.
         RunEvent::ExitRequested { api, code: None, .. } => api.prevent_exit(),
         RunEvent::Exit => shutdown(app),
+        // Clicking the app in the Dock or Finder after closing its window brings the window back
+        // (John, 2026-11-02: it never came back without a quit and relaunch).
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main(app, None),
         _ => {}
     });
 }
@@ -167,6 +177,13 @@ fn on_event(app: &AppHandle, event: Event) {
                 }
             });
         }
+        Event::Note { event: NoteEvent::Recording { recording: true, .. } } if svc(app).ctx.settings().call_tracker => {
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                set_tracker_visible(&app2, true);
+                update_tray(&app2, None);
+            });
+        }
         Event::Note { event: NoteEvent::Recording { .. } } | Event::SettingsChanged => {
             let app2 = app.clone();
             let _ = app.run_on_main_thread(move || update_tray(&app2, None));
@@ -199,6 +216,7 @@ fn build_main(app: &AppHandle, visible: bool) -> tauri::Result<()> {
         .min_inner_size(900.0, 560.0)
         .visible(visible)
         .build()?;
+    set_taskbar_icon(&w);
     let w2 = w.clone();
     w.on_window_event(move |e| {
         if let WindowEvent::CloseRequested { api, .. } = e {
@@ -208,6 +226,31 @@ fn build_main(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     });
     Ok(())
 }
+
+/// Tauri gives a window only its small icon (tao's `set_window_icon` is ICON_SMALL), and the
+/// Windows taskbar shows the big one, so the main window sat on the taskbar as a blank page
+/// (MBC262, 2026-11-02). This hands it the exe's own icon as the big one.
+#[cfg(windows)]
+fn set_taskbar_icon(w: &WebviewWindow) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, IMAGE_ICON, LR_SHARED, SM_CXICON, SM_CYICON, WM_SETICON,
+    };
+    let Ok(h) = w.hwnd() else { return };
+    unsafe {
+        let Ok(module) = GetModuleHandleW(PCWSTR::null()) else { return };
+        // The id tauri-build gives the app icon in the exe's resources (MAKEINTRESOURCE).
+        let id = PCWSTR(tauri::utils::platform::WINDOWS_APP_ICON_RESOURCE_ID as usize as *const u16);
+        let (cx, cy) = (GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+        let Ok(icon) = LoadImageW(Some(HINSTANCE(module.0)), id, IMAGE_ICON, cx, cy, LR_SHARED) else { return };
+        let _ = SendMessageW(HWND(h.0 as _), WM_SETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(icon.0 as isize)));
+    }
+}
+
+#[cfg(not(windows))]
+fn set_taskbar_icon(_w: &WebviewWindow) {}
 
 fn floating(app: &AppHandle, label: &str, page: &str, width: f64, height: f64) -> tauri::Result<WebviewWindow> {
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App(page.into()))
@@ -240,6 +283,31 @@ fn build_toast(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+const TRACKER_WIDTH: f64 = 320.0;
+const TRACKER_HEIGHT: f64 = 460.0;
+
+/// The call tracker, at the right edge of the screen near the top, where a call's own window
+/// rarely puts anything. Content protection asks to leave it out of screen shares: the Mac's
+/// sharingType none, Windows' display affinity. Newer Mac capture (ScreenCaptureKit, which Zoom
+/// and Teams use) may not honor it, so hide the panel or share one window when it matters.
+fn build_tracker(app: &AppHandle) -> tauri::Result<()> {
+    let w = floating(app, "tracker", "tracker.html", TRACKER_WIDTH, TRACKER_HEIGHT)?;
+    let _ = w.set_content_protected(true);
+    let (x, y, width, _) = screen(app);
+    let _ = w.set_position(LogicalPosition::new(x + width - TRACKER_WIDTH - 16.0, y + 48.0));
+    Ok(())
+}
+
+fn set_tracker_visible(app: &AppHandle, visible: bool) {
+    if let Some(w) = app.get_webview_window("tracker") {
+        if visible {
+            panel::show(&w);
+        } else {
+            panel::hide(&w);
+        }
+    }
+}
+
 /// The primary screen in logical points: its size, and where its usable area starts.
 fn screen(app: &AppHandle) -> (f64, f64, f64, f64) {
     let m = app.primary_monitor().ok().flatten();
@@ -253,20 +321,42 @@ fn screen(app: &AppHandle) -> (f64, f64, f64, f64) {
     }
 }
 
+/// The primary screen whole, menu bar and Dock included, in logical points.
+fn whole_screen(app: &AppHandle) -> (f64, f64, f64, f64) {
+    match app.primary_monitor().ok().flatten() {
+        Some(m) => {
+            let scale = m.scale_factor();
+            (m.position().x as f64 / scale, m.position().y as f64 / scale, m.size().width as f64 / scale, m.size().height as f64 / scale)
+        }
+        None => (0.0, 0.0, 1440.0, 900.0),
+    }
+}
+
 /// The saved spot when there is one, otherwise bottom center. Saved in the Mac app's own
-/// convention on the Mac (from the bottom left of the main screen), so the setting carries over
-/// at cutover; top left elsewhere.
+/// convention on the Mac (the pill's bottom edge, up from the bottom of the main screen), so the
+/// setting carries over at cutover; top left elsewhere. The whole screen counts, menu bar
+/// included: John keeps the pill level with the menu bar, and clamping to the usable area pushed
+/// it down under it (2026-11-02).
 fn place_pill(app: &AppHandle, w: &WebviewWindow, width: f64) {
     let s = svc(app).ctx.settings();
     let (x0, y0, sw, sh) = screen(app);
+    let (fx, fy, fw, fh) = whole_screen(app);
     let (x, y) = match (s.hud_x, s.hud_y) {
-        (Some(x), Some(y)) if cfg!(target_os = "macos") => (x, y0 + sh - y - PILL_HEIGHT + y0),
+        (Some(x), Some(y)) if cfg!(target_os = "macos") => (x, from_bottom(fy, fh, y)),
         (Some(x), Some(y)) => (x, y),
         _ => (x0 + (sw - width) / 2.0, y0 + sh - PILL_BOTTOM_MARGIN - PILL_HEIGHT),
     };
-    let x = x.clamp(x0 - width + 40.0, x0 + sw - 40.0);
-    let y = y.clamp(y0, y0 + sh - PILL_HEIGHT);
+    // Windows keeps it off the taskbar, as before.
+    let (cx, cy, cw, ch) = if cfg!(target_os = "macos") { (fx, fy, fw, fh) } else { (x0, y0, sw, sh) };
+    let x = x.clamp(cx - width + 40.0, cx + cw - 40.0);
+    let y = y.clamp(cy, cy + ch - PILL_HEIGHT);
     let _ = w.set_position(LogicalPosition::new(x, y));
+}
+
+/// The Mac's saved height (bottom edge up from the screen's bottom) to a top edge down from its
+/// top, and back: the same sum either way.
+fn from_bottom(top: f64, height: f64, v: f64) -> f64 {
+    top + height - v - PILL_HEIGHT
 }
 
 fn show_pill(app: &AppHandle) {
@@ -410,12 +500,32 @@ fn pill_moved(handle: AppHandle, app: State<'_, App>) {
     let Ok(pos) = w.outer_position() else { return };
     let scale = w.scale_factor().unwrap_or(1.0);
     let (x, y) = (pos.x as f64 / scale, pos.y as f64 / scale);
-    let (_, y0, _, sh) = screen(&handle);
-    let saved_y = if cfg!(target_os = "macos") { y0 + sh - y - PILL_HEIGHT + y0 } else { y };
+    let (_, fy, _, fh) = whole_screen(&handle);
+    let saved_y = if cfg!(target_os = "macos") { from_bottom(fy, fh, y) } else { y };
     app.svc.ctx.update_settings(|s| {
         s.hud_x = Some(x);
         s.hud_y = Some(saved_y);
     });
+}
+
+#[tauri::command]
+fn tracker(app: State<'_, App>, id: String) -> linflow_core::meeting::tracker::Tracker {
+    app.svc.tracker(&id)
+}
+
+#[tauri::command]
+fn toggle_tracker(app: State<'_, App>, id: String, item: String) -> Cmd<linflow_core::meeting::tracker::Tracker> {
+    app.svc.toggle_tracker(&id, &item)
+}
+
+#[tauri::command]
+fn tracker_hide(handle: AppHandle) {
+    set_tracker_visible(&handle, false);
+}
+
+#[tauri::command]
+fn tracker_open_note(handle: AppHandle, id: String) {
+    navigate(&handle, &format!("note:{id}"));
 }
 
 #[tauri::command]
@@ -435,6 +545,7 @@ fn pill_menu(handle: AppHandle, item: String) {
                 navigate(&handle, &format!("note:{id}"));
             }
         }
+        "tracker" => set_tracker_visible(&handle, true),
         other => navigate(&handle, other),
     }
 }
@@ -555,8 +666,19 @@ fn remove_rule(app: State<'_, App>, from: String) -> Cmd<()> {
 }
 
 #[tauri::command]
-fn accept_rule(app: State<'_, App>, from: String, to: String) -> Cmd<()> {
-    app.svc.ctx.dictionary.accept(&from, &to).map_err(|e| e.to_string())
+fn edit_rule(app: State<'_, App>, original: String, from: String, to: String) -> Cmd<()> {
+    app.svc.ctx.dictionary.edit_rule(&original, &from, &to).map_err(|e| e.to_string())
+}
+
+/// `original` comes with a suggestion fixed in the window first: its left side as it was offered.
+#[tauri::command]
+fn accept_rule(app: State<'_, App>, from: String, to: String, original: Option<String>) -> Cmd<()> {
+    let d = &app.svc.ctx.dictionary;
+    match original {
+        Some(original) => d.accept_edited(&original, &from, &to),
+        None => d.accept(&from, &to),
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -51,3 +51,17 @@ pub fn frontmost_app() -> Option<App> {
     let name = file.rsplit_once('.').map(|(stem, _)| stem.to_string()).unwrap_or_else(|| file.clone());
     Some(App { pid, id: file.to_lowercase(), name })
 }
+
+/// Whether a modifier is held right now, on either side: "shift", "control", "option" (Alt) or
+/// "command" (the Windows key).
+pub fn modifier_held(name: &str) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    let keys: &[i32] = match name {
+        "shift" => &[0x10],
+        "control" => &[0x11],
+        "option" | "alt" => &[0x12],
+        "command" => &[0x5B, 0x5C],
+        _ => return false,
+    };
+    keys.iter().any(|&vk| (unsafe { GetAsyncKeyState(vk) } as u16) & 0x8000 != 0)
+}

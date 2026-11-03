@@ -10,6 +10,7 @@ pub mod merge;
 pub mod regions;
 pub mod running;
 pub mod summary;
+pub mod tracker;
 
 /// A speech engine as the notetaker sees it: 16 kHz mono in, text out.
 pub trait Recognizer {

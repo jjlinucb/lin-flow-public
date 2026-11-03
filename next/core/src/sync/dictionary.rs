@@ -487,6 +487,24 @@ mod tests {
     }
 
     #[test]
+    fn a_correction_edited_on_one_computer_is_edited_on_the_other() {
+        let net = table();
+        let (_a, mac) = machine("mac-edit");
+        let (_b, pc) = machine("pc-edit");
+        std::fs::write(&mac.vocab, "Parakeet\n").unwrap();
+        std::fs::write(&mac.replacements, "jaz mint => Jazmint\t# learned\nwisper => Wispr\n").unwrap();
+        sync(&config("Mac"), &mac, &net, Utc::now()).unwrap();
+        sync(&config("DESK-01"), &pc, &net, Utc::now()).unwrap();
+        // The window's edit: both sides of the learned one, the right side of the other.
+        std::fs::write(&mac.replacements, "Jazz Mint => Jasmine\t# learned\nwisper => Wispr Flow\n").unwrap();
+        sync(&config("Mac"), &mac, &net, Utc::now()).unwrap();
+        sync(&config("DESK-01"), &pc, &net, Utc::now()).unwrap();
+        let mut rules = glossary::parse_replacements(&std::fs::read_to_string(&pc.replacements).unwrap());
+        rules.sort_by(|a, b| a.from.cmp(&b.from));
+        assert_eq!(rules, vec![Replacement::learned("Jazz Mint", "Jasmine"), Replacement::new("wisper", "Wispr Flow")]);
+    }
+
+    #[test]
     fn an_emptied_file_deletes_nothing_anywhere() {
         let net = table();
         let (_a, mac) = machine("mac2");

@@ -32,6 +32,7 @@ fn usage() -> ! {
   linflow notes-export <note id|folder> [<out.mp3|out.wav>]   both sides of a note in one file, as Save Audio does
   linflow notes-test <audio> [--model <id>]     a file through the live transcriber, line by line
   linflow running-notes-test <transcript.jsonl> [--model claude|ollama]   replay a meeting's notes
+  linflow tracker-test <transcript.jsonl> [--model qwen2.5:7b]   replay a meeting's call tracker
   These open the microphone, read another app's field or paste, so only when asked:
   linflow mic-test            one second from the default input
   linflow focus-test [--wait <s>]               whether the focused field can be read back
@@ -89,6 +90,7 @@ fn main() {
         "notes-export" => diag::notes_export(&args),
         "notes-test" => diag::notes_test(&args),
         "running-notes-test" => diag::running_notes_test(&args),
+        "tracker-test" => diag::tracker_test(&args),
         "mic-test" => diag::mic_test(),
         "focus-test" => diag::focus_test(&args),
         "paste" => diag::paste(&args),

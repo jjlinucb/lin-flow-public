@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import { resolve } from "node:path";
 
-// Three pages, one per window: the dashboard, the pill and the toasts.
+// Four pages, one per window: the dashboard, the pill, the toasts and the call tracker.
 export default defineConfig({
   plugins: [preact()],
   clearScreen: false,
@@ -16,6 +16,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         pill: resolve(__dirname, "pill.html"),
         toast: resolve(__dirname, "toast.html"),
+        tracker: resolve(__dirname, "tracker.html"),
       },
     },
   },

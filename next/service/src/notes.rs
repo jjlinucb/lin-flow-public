@@ -1,48 +1,54 @@
 //! Everything done to a meeting note outside the recording itself: which model writes notes,
-//! the pass over the recording, summaries, the recap, asking Claude, renaming, relabeling the
+//! the pass over the recording, summaries, the recap, asking about a meeting, renaming, relabeling the
 //! speakers, deleting.
 
 use crate::context::Context;
 use crate::engine::{self, SlotRecognizer};
 use crate::events::{Event, NoteEvent, Toast, ToastAction};
-use linflow_core::llm::{self, Claude, Ollama};
+use linflow_core::llm::{self, Ollama};
 use linflow_core::meeting::detect::Recap;
 use linflow_core::meeting::summary::{self, Kind, NoteModel};
+use linflow_core::meeting::tracker::Tracker;
 use linflow_core::audio_export::{self, Format};
 use linflow_core::notes::{follow_title, transcript_text, AudioExportRecord, MeetingNote, QuestionTurn, TranscriptSegment};
 use std::collections::{HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// The model for running notes: the local one, since they run every minute and Claude costs
-/// money per call; Claude when there is no local model. Apple Intelligence is out (John,
-/// 2026-10-23), so on the Mac the local model is Ollama too. None, with the reason, when
-/// neither is there.
-pub fn running_notes_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
-    let s = ctx.settings();
-    let ollama = Ollama::new(&s.ollama_host, &s.ollama_model, ctx.net.clone());
-    let local = ollama.check();
-    if local.is_none() {
-        return Ok(Box::new(ollama));
-    }
-    if let Some(claude) = Claude::from_saved_key(ctx.net.clone()) {
-        return Ok(Box::new(claude));
-    }
-    Err(local.unwrap_or_default())
+/// The local model every meeting uses, through Ollama. Nothing from a meeting leaves the
+/// computer (John, 2026-10-30): his work calls must never reach Claude, and he wants no split
+/// between work and personal calls, so Claude is out for meetings altogether, saved key or not.
+/// The default model is the bigger one; a computer that only has the small one uses it.
+pub fn local_model(ctx: &Context) -> Result<Ollama, String> {
+    pick_local(&ctx.settings(), ctx.net.clone())
 }
 
-/// The model for summaries, recaps and questions: Claude once a key is saved, since it reads a
-/// whole meeting at once; the local model otherwise.
+/// The small model was the default until 2026-10-30, and every settings save wrote it down, so
+/// a saved "qwen2.5:3b" is the old default rather than a choice: it moves up to the bigger
+/// model once that is pulled.
+fn pick_local(s: &linflow_core::settings::Settings, net: Arc<dyn linflow_core::net::Transport>) -> Result<Ollama, String> {
+    let saved = s.ollama_model.trim();
+    let default = saved.is_empty() || saved == llm::OLLAMA_MODEL || saved == llm::OLLAMA_SMALL_MODEL;
+    let first = if default { llm::OLLAMA_MODEL } else { saved };
+    let chosen = Ollama::new(&s.ollama_host, first, net.clone());
+    let Some(why) = chosen.check() else { return Ok(chosen) };
+    if default {
+        let small = Ollama::new(&s.ollama_host, llm::OLLAMA_SMALL_MODEL, net);
+        if small.check().is_none() {
+            return Ok(small);
+        }
+    }
+    Err(why)
+}
+
+/// The model for running notes and the call tracker.
+pub fn running_notes_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
+    local_model(ctx).map(|m| Box::new(m) as Box<dyn NoteModel + Send>)
+}
+
+/// The model for summaries, recaps and questions.
 pub fn summary_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
-    if let Some(claude) = Claude::from_saved_key(ctx.net.clone()) {
-        return Ok(Box::new(claude));
-    }
-    let s = ctx.settings();
-    let ollama = Ollama::new(&s.ollama_host, &s.ollama_model, ctx.net.clone());
-    match ollama.check() {
-        None => Ok(Box::new(ollama)),
-        Some(why) => Err(format!("No model to write notes with. Save a Claude key (scripts/setup-claude.sh), or {}", lower_first(&why))),
-    }
+    local_model(ctx).map(|m| Box::new(m) as Box<dyn NoteModel + Send>).map_err(|why| format!("No model to write notes with: {}", lower_first(&why)))
 }
 
 fn lower_first(s: &str) -> String {
@@ -279,8 +285,9 @@ impl NoteWork {
         self.ctx.toast(toast);
     }
 
-    /// One question about a note to Claude, with the transcript so far, John's notes and the
-    /// questions before it. The answer is saved with the note.
+    /// One question about a note to the local model, with the newest stretch of the transcript
+    /// that fits beside John's notes and the questions before it. The answer is saved with the
+    /// note.
     pub fn ask(self: &Arc<Self>, id: &str, question: &str) {
         let q = question.trim().to_string();
         if q.is_empty() || !self.asking.lock().unwrap().insert(id.to_string()) {
@@ -289,15 +296,23 @@ impl NoteWork {
         let me = self.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
-            match Claude::from_saved_key(me.ctx.net.clone()) {
-                None => me.error("Save a Claude key first: run scripts/setup-claude.sh once."),
-                Some(client) => {
+            match summary_model(&me.ctx) {
+                Err(why) => me.error(why),
+                Ok(mut model) => {
                     let title = me.ctx.notes.load(&id).map(|n| n.title).unwrap_or_else(|| "Meeting".into());
-                    let transcript = transcript_text(&me.ctx.notes.transcript(&id), true);
                     let notes = me.ctx.notes.notes_text(&id);
                     let mut turns = me.ctx.notes.questions(&id);
-                    let prompt = llm::questions::prompt(&title, &transcript, &notes, &turns, &q);
-                    match client.ask(llm::questions::SYSTEM, &prompt, 1024) {
+                    // The local model's window holds the newest transcript and the latest
+                    // questions; older questions drop out before the transcript gets short.
+                    let mut earlier = &turns[turns.len().saturating_sub(3)..];
+                    let room = |earlier: &[QuestionTurn]| model.window_characters().saturating_sub(llm::questions::prompt(&title, "", &notes, earlier, &q).len());
+                    while !earlier.is_empty() && room(earlier) < 2_000 {
+                        earlier = &earlier[1..];
+                    }
+                    let transcript = summary::tail(&transcript_text(&me.ctx.notes.transcript(&id), true), room(earlier).max(1_000));
+                    let prompt = llm::questions::prompt(&title, &transcript, &notes, earlier, &q);
+                    let request = summary::Request { instructions: llm::questions::SYSTEM.into(), prompt, max_tokens: 800, lists: vec![], greedy: false };
+                    match model.complete(&request) {
                         Ok(answer) => {
                             turns.push(QuestionTurn { question: q.clone(), answer, asked_at: linflow_core::notes::now() });
                             let _ = me.ctx.notes.save_questions(&id, &turns);
@@ -362,6 +377,29 @@ impl NoteWork {
         Ok(())
     }
 
+    /// A work call's MP3, into the work OneDrive's `Lin Flow Recordings` (John, 2026-11-02: "work
+    /// call should"). Named after the meeting, so a resumed call writes over its own earlier file.
+    /// Logs and returns when there is no work OneDrive on this computer.
+    pub fn save_work_audio(&self, id: &str) {
+        let Some(dir) = work_audio_folder() else {
+            log::info!("notes: {id} was a work call, but this computer has no work OneDrive");
+            return;
+        };
+        let Some(note) = self.ctx.notes.load(id) else { return };
+        if !self.ctx.notes.has_audio(id) {
+            return;
+        }
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            log::warn!("notes: could not make {}: {e}", dir.display());
+            return;
+        }
+        let to = dir.join(format!("{}.mp3", file_name(&note.title)));
+        match self.save_audio(id, &to, Format::Mp3) {
+            Ok(()) => log::info!("notes: {id} work call saved to {}", to.display()),
+            Err(e) => log::warn!("notes: {id} work call audio: {e}"),
+        }
+    }
+
     pub fn is_saving_audio(&self, id: &str) -> bool {
         self.saving_audio.lock().unwrap().contains(id)
     }
@@ -369,6 +407,26 @@ impl NoteWork {
     pub fn is_asking(&self, id: &str) -> bool {
         self.asking.lock().unwrap().contains(id)
     }
+}
+
+/// One writer at a time for `tracker.json`: the tracker's pass and John's ticks both write it,
+/// and a pass takes seconds, so each reads the file again under this lock before it writes.
+static TRACKER: Mutex<()> = Mutex::new(());
+
+/// Changes a note's tracker, saves it and tells the window.
+pub fn update_tracker(ctx: &Context, id: &str, change: impl FnOnce(&mut Tracker) -> bool) -> Result<Tracker, String> {
+    let _one = TRACKER.lock().unwrap_or_else(|e| e.into_inner());
+    let mut t = ctx.notes.tracker(id);
+    if change(&mut t) {
+        ctx.notes.save_tracker(id, &t).map_err(|e| e.to_string())?;
+        ctx.emit(Event::Note { event: NoteEvent::Tracker { id: id.into(), tracker: t.clone() } });
+    }
+    Ok(t)
+}
+
+/// Ticks a tracker item off, or back on.
+pub fn toggle_tracker(ctx: &Context, id: &str, item: &str) -> Result<Tracker, String> {
+    update_tracker(ctx, id, |t| t.toggle(item))
 }
 
 /// Renames a note. An empty title keeps the old one.
@@ -435,10 +493,121 @@ pub fn speakers(segments: &[TranscriptSegment]) -> Vec<String> {
     out
 }
 
+/// Where work calls' MP3s go: `Lin Flow Recordings` in the work OneDrive. On the Mac that is the
+/// OneDrive under `~/Library/CloudStorage` that is not the personal one; on Windows, the folder
+/// OneDrive names in `OneDriveCommercial`.
+pub const WORK_AUDIO_FOLDER: &str = "Lin Flow Recordings";
+
+fn work_audio_folder() -> Option<PathBuf> {
+    let commercial = std::env::var("OneDriveCommercial").ok().filter(|v| !v.is_empty());
+    let cloud = dirs_home().map(|h| h.join("Library").join("CloudStorage"));
+    let entries: Vec<String> = cloud
+        .as_ref()
+        .and_then(|c| std::fs::read_dir(c).ok())
+        .map(|r| r.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    work_onedrive(commercial.as_deref(), cloud.as_deref(), &entries).map(|d| d.join(WORK_AUDIO_FOLDER))
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// The work OneDrive: Windows' own pointer when it has one, otherwise the first `OneDrive-*`
+/// folder in the Mac's CloudStorage that is not `OneDrive-Personal`.
+pub fn work_onedrive(commercial: Option<&str>, cloud: Option<&Path>, entries: &[String]) -> Option<PathBuf> {
+    if let Some(c) = commercial {
+        return Some(PathBuf::from(c));
+    }
+    let mut work: Vec<&String> = entries.iter().filter(|e| e.starts_with("OneDrive-") && e.as_str() != "OneDrive-Personal").collect();
+    work.sort();
+    Some(cloud?.join(work.first()?))
+}
+
+/// A meeting title as a file name OneDrive takes: no slashes, colons or the other characters
+/// Windows refuses ("1:34 PM" becomes "1.34 PM").
+pub fn file_name(title: &str) -> String {
+    let name: String = title.chars().map(|c| match c {
+        ':' => '.',
+        '/' | '\\' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+        c if c.is_control() => ' ',
+        c => c,
+    }).collect();
+    let name = name.trim().trim_end_matches('.').trim().to_string();
+    if name.is_empty() { "Meeting".into() } else { name }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_work_call_goes_to_the_work_onedrive_under_a_name_it_takes() {
+        let cloud = Path::new("/Users/x/Library/CloudStorage");
+        let entries = vec!["OneDrive-Personal".to_string(), "OneDrive-Acme".to_string(), "GoogleDrive-x".to_string()];
+        assert_eq!(work_onedrive(None, Some(cloud), &entries), Some(cloud.join("OneDrive-Acme")));
+        assert_eq!(work_onedrive(None, Some(cloud), &["OneDrive-Personal".to_string()]), None, "the personal one is never work");
+        assert_eq!(work_onedrive(Some(r"C:\Users\x\OneDrive - Acme"), None, &[]), Some(PathBuf::from(r"C:\Users\x\OneDrive - Acme")));
+        assert_eq!(file_name("Meeting Nov 2, 1:34 PM"), "Meeting Nov 2, 1.34 PM");
+        assert_eq!(file_name("Q3 / Q4 plan? <draft>"), "Q3 - Q4 plan- -draft-");
+        assert_eq!(file_name("  ..  "), "Meeting");
+    }
+
     use super::*;
     use crate::events::Sink;
+
+    struct Tags(&'static str);
+    impl linflow_core::net::Transport for Tags {
+        fn send(&self, _: &linflow_core::net::HttpRequest) -> Result<linflow_core::net::HttpResponse, linflow_core::net::NetError> {
+            Ok(linflow_core::net::HttpResponse { status: 200, body: format!(r#"{{"models":[{}]}}"#, self.0).into_bytes() })
+        }
+    }
+
+    #[test]
+    fn meetings_use_the_bigger_local_model_then_the_small_one() {
+        let s = linflow_core::settings::Settings::default();
+        let both = pick_local(&s, Arc::new(Tags(r#"{"name":"qwen2.5:3b"},{"name":"qwen2.5:7b"}"#))).unwrap();
+        assert_eq!(both.model, "qwen2.5:7b");
+        let small = pick_local(&s, Arc::new(Tags(r#"{"name":"qwen2.5:3b"}"#))).unwrap();
+        assert_eq!(small.model, "qwen2.5:3b", "a computer without the 7b keeps working");
+        let why = pick_local(&s, Arc::new(Tags(""))).err().unwrap_or_default();
+        assert!(why.contains("ollama pull qwen2.5:7b"), "{why}");
+        let old_default = linflow_core::settings::Settings { ollama_model: "qwen2.5:3b".into(), ..s.clone() };
+        assert_eq!(pick_local(&old_default, Arc::new(Tags(r#"{"name":"qwen2.5:3b"},{"name":"qwen2.5:7b"}"#))).unwrap().model, "qwen2.5:7b", "the old default moves up");
+        let chosen = linflow_core::settings::Settings { ollama_model: "llama3.2:3b".into(), ..s };
+        assert!(pick_local(&chosen, Arc::new(Tags(r#"{"name":"qwen2.5:3b"}"#))).is_err(), "a model John chose is not swapped for another");
+    }
+
+    #[test]
+    fn tracker_ticks_and_passes_both_land() {
+        use linflow_core::meeting::tracker::{Item, Kind};
+        let dir = std::env::temp_dir().join(format!("linflow-tracker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let seen = Arc::new(Mutex::new(0));
+        let s2 = seen.clone();
+        let events: Sink = Arc::new(move |e| {
+            if matches!(e, Event::Note { event: NoteEvent::Tracker { .. } }) {
+                *s2.lock().unwrap() += 1;
+            }
+        });
+        let ctx = Context::new(dir.clone(), events);
+        let note = ctx.notes.create("Standup").unwrap();
+        let item = |text: &str| Item { id: String::new(), kind: Kind::Question, at: 1.0, text: text.into(), detail: "Say when.".into(), done: false };
+        update_tracker(&ctx, &note.id, |t| {
+            t.add(vec![item("Can it land by Friday?")]);
+            true
+        })
+        .unwrap();
+        toggle_tracker(&ctx, &note.id, "q-1").unwrap();
+        update_tracker(&ctx, &note.id, |t| {
+            t.add(vec![item("Who owns the demo?")]);
+            true
+        })
+        .unwrap();
+        let t = ctx.notes.tracker(&note.id);
+        assert_eq!(t.items.iter().map(|i| (i.id.as_str(), i.done)).collect::<Vec<_>>(), vec![("q-1", true), ("q-2", false)], "the tick survives the next pass");
+        assert!(toggle_tracker(&ctx, &note.id, "q-9").is_ok(), "an unknown item changes nothing");
+        assert_eq!(*seen.lock().unwrap(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn saved_audio_is_remembered_and_follows_a_rename() {

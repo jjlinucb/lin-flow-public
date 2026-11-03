@@ -1,8 +1,9 @@
 //! The language models the notetaker talks to, each behind `meeting::summary::NoteModel`.
 //!
-//! Claude reads whole meetings: summaries, recaps and John's own questions mid-call. The
-//! transcript goes to Anthropic's API, so it is used only once a key is saved. Ollama is the
-//! local model, free and on the machine, for running notes and for summaries without a key.
+//! Ollama is the local model, free and on the machine, and the app uses only it for meetings:
+//! running notes, the call tracker, summaries, recaps and questions (John, 2026-10-30: nothing
+//! from a call leaves the computer). Claude reads a whole meeting at once and is left for the
+//! CLI's `ask` and `summarize`, run by hand.
 
 use crate::meeting::summary::{ListSpec, ModelError, NoteModel, Request};
 use crate::net::{HttpRequest, NetError, Transport};
@@ -164,7 +165,10 @@ pub mod questions {
 // MARK: Ollama
 
 pub const OLLAMA_HOST: &str = "http://127.0.0.1:11434";
-pub const OLLAMA_MODEL: &str = "qwen2.5:3b";
+/// 4.7 GB, about 6 s a pass on an M1 Pro: good enough to suggest an answer, not only to note one.
+pub const OLLAMA_MODEL: &str = "qwen2.5:7b";
+/// What a computer without the bigger model falls back to.
+pub const OLLAMA_SMALL_MODEL: &str = "qwen2.5:3b";
 
 /// Ollama's local HTTP API with a small instruct model. Nothing leaves the machine. Address it as
 /// 127.0.0.1, never localhost: Ollama binds IPv4 only, Windows tries ::1 first, and that dead

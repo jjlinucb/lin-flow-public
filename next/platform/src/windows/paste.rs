@@ -178,9 +178,10 @@ fn control_v() {
     }
 }
 
-/// Pastes `text` and puts John's clipboard back after `restore_after`, unless something else
-/// was copied in the meantime: clobbering that would be far worse than losing a restore.
-pub fn paste(text: &str, restore_after: Duration) {
+/// Pastes `text` and puts John's clipboard back after `how.restore_after`, unless something else
+/// was copied in the meantime: clobbering that would be far worse than losing a restore. Windows
+/// pastes with Ctrl+V everywhere, so only the timings of a remote app apply.
+pub fn paste(text: &str, how: linflow_core::remote::Paste) {
     if text.is_empty() {
         return;
     }
@@ -189,11 +190,15 @@ pub fn paste(text: &str, restore_after: Duration) {
         log::info!("paste abandoned: the clipboard could not be set");
         return;
     };
+    if !how.wait.is_zero() {
+        std::thread::sleep(how.wait);
+    }
     release_modifiers();
     control_v();
     if snap.is_empty() {
         return;
     }
+    let restore_after = how.restore_after;
     std::thread::spawn(move || {
         std::thread::sleep(restore_after);
         if unsafe { GetClipboardSequenceNumber() } == ours {

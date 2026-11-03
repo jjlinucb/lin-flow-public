@@ -229,6 +229,9 @@ impl NotesStore {
     pub fn running_notes_path(&self, id: &str) -> PathBuf {
         self.folder(id).join("running-notes.md")
     }
+    pub fn tracker_path(&self, id: &str) -> PathBuf {
+        self.folder(id).join("tracker.json")
+    }
     pub fn questions_path(&self, id: &str) -> PathBuf {
         self.folder(id).join("questions.json")
     }
@@ -353,6 +356,12 @@ impl NotesStore {
         }
         Self::append_line(&self.running_notes_path(id), markdown)
     }
+    pub fn tracker(&self, id: &str) -> crate::meeting::tracker::Tracker {
+        fs::read_to_string(self.tracker_path(id)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    }
+    pub fn save_tracker(&self, id: &str, tracker: &crate::meeting::tracker::Tracker) -> std::io::Result<()> {
+        write_atomic(&self.tracker_path(id), json::pretty(tracker).map_err(std::io::Error::other)?.as_bytes())
+    }
     pub fn questions(&self, id: &str) -> Vec<QuestionTurn> {
         fs::read_to_string(self.questions_path(id)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
     }
@@ -405,6 +414,7 @@ impl NotesStore {
         if let Some(summary) = self.summary(&note.id).filter(|s| !s.trim().is_empty()) {
             md.push_str(&format!("## Summary\n\n{}\n\n", summary.trim()));
         }
+        md.push_str(&self.tracker(&note.id).markdown());
         let notes = self.notes_text(&note.id);
         if !notes.trim().is_empty() {
             md.push_str(&format!("## My notes\n\n{}\n\n", notes.trim()));

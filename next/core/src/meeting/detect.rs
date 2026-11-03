@@ -84,6 +84,12 @@ pub const CALL_APPS: &[(&str, &str)] = &[
 /// Apps that open the microphone to dictate, not to call, Lin Flow included.
 pub const NOT_CALLS: &[&str] = &["com.johnlin.linflow", "com.johnlin.linflow.next", "linflow.exe", "lin flow.exe", "com.electron.wispr-flow", "wispr flow.exe", "com.superduper.superwhisper"];
 
+/// A Teams call. John's only work calls are on Teams (2026-11-02), so a recording Teams was on
+/// also goes to the work OneDrive as an MP3.
+pub fn is_work_call(id: &str) -> bool {
+    call_app_name(&id.to_lowercase()) == Some("Teams")
+}
+
 pub fn call_app_name(id: &str) -> Option<&'static str> {
     let id = id.to_lowercase();
     if NOT_CALLS.contains(&id.as_str()) {
@@ -257,6 +263,12 @@ mod tests {
 
     fn rec(app: Option<&str>) -> Recording {
         Recording { app: app.map(String::from), quiet_for: 0.0, mic_dead_for: 0.0, system_dead_for: 0.0, mic_spoke_ago: 0.0, seconds: 60.0 }
+    }
+
+    #[test]
+    fn only_teams_is_a_work_call() {
+        assert!(is_work_call("com.microsoft.teams2") && is_work_call("MS-Teams.exe"));
+        assert!(!is_work_call("us.zoom.xos") && !is_work_call("com.google.Chrome"));
     }
 
     #[test]

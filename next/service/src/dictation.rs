@@ -5,6 +5,7 @@
 //! talk key's own (it only hands the press on), the audio thread (opens and closes the
 //! microphone, in order), and the work thread (the model, the cleanup, the paste, the history).
 
+use crate::command;
 use crate::context::Context;
 use crate::engine::{self, EngineSlot};
 use crate::events::{DictationState, Event, Toast, ToastAction};
@@ -12,6 +13,7 @@ use crate::readback::Readback;
 use linflow_core::audio::{self, peak, SAMPLE_RATE, SAMPLE_RATE_F};
 use linflow_core::history::{self, HistoryEntry};
 use linflow_core::models;
+use linflow_core::remote::RemoteApps;
 use linflow_core::repair::SilentStreak;
 use linflow_platform::mic::Microphone;
 use linflow_platform::{App, Sound};
@@ -24,8 +26,6 @@ use std::time::{Duration, Instant};
 pub const MINIMUM_CLIP_SECONDS: f64 = 0.35;
 /// Below this peak the clip is silence.
 pub const SILENCE_PEAK: f32 = 0.01;
-/// How long the dictation sits on the clipboard before John's own goes back.
-pub const RESTORE_AFTER: Duration = Duration::from_millis(400);
 
 enum Cmd {
     Press(Instant),
@@ -37,6 +37,8 @@ struct Job {
     target: Option<App>,
     device: Option<String>,
     first_audio: Option<f64>,
+    /// The command key was held with the talk key, at the press or the release.
+    command_key: bool,
 }
 
 pub struct Dictation {
@@ -149,6 +151,8 @@ impl Dictation {
 
     fn audio_loop(self: Arc<Self>, rx: Receiver<Cmd>, work: Sender<Job>) {
         let mut pressed = false;
+        let mut command_key = false;
+        let key_held = |d: &Dictation| command::Hook::load(&d.ctx.data_dir).is_some_and(|h| h.key_held());
         let mut mic: Option<Microphone> = None;
         let mut mic_opened_at = Instant::now();
         let mut key_at = Instant::now();
@@ -185,6 +189,7 @@ impl Dictation {
                     }
                     pressed = true;
                     key_at = at;
+                    command_key = key_held(&self);
                     // The previous dictation's readback keeps running: two dictations into the
                     // same box inside 15 s is normal, and a fix to the first must still count.
                     target = linflow_platform::frontmost_app();
@@ -222,6 +227,7 @@ impl Dictation {
                         continue;
                     }
                     pressed = false;
+                    command_key |= key_held(&self);
                     let (device, first_audio) = match mic.take() {
                         Some(m) => {
                             let device = Some(m.device.clone());
@@ -270,7 +276,7 @@ impl Dictation {
                         *queued += 1;
                         self.set_state(DictationState::Transcribing);
                     }
-                    let _ = work.send(Job { samples, target: target.take(), device, first_audio });
+                    let _ = work.send(Job { samples, target: target.take(), device, first_audio, command_key });
                 }
             }
         }
@@ -394,13 +400,44 @@ impl Dictation {
             return;
         }
         let to_paste = if settings.trailing_space && !text.ends_with('\n') { format!("{text} ") } else { text.clone() };
-        if std::env::var_os("LINFLOW_NO_PASTE").is_some() {
+        let hook = command::Hook::load(&self.ctx.data_dir);
+        let spoken = hook.as_ref().and_then(|h| h.command(&text, job.command_key).map(|c| (h, c)));
+        if let Some((hook, said)) = spoken {
+            // A step can take a while (a question to Claude): the card stays until the next line.
+            const WORKING: f64 = 180.0;
+            // One card above the pill per command, titled with what was heard so a mishearing
+            // shows, and updated in place as each step runs: toasts with one title replace each other.
+            let title = format!("{}: {}", hook.word, said.chars().take(60).collect::<String>());
+            self.ctx.toast(Toast::new(&title, "Starting…").seconds(WORKING));
+            let ctx = self.ctx.clone();
+            let show = move |line: &str, progress: command::Progress| {
+                let toast = Toast::new(&title, line);
+                ctx.toast(match progress {
+                    command::Progress::Working => toast.seconds(WORKING),
+                    command::Progress::Done => toast.seconds(8.0),
+                    command::Progress::Failed => toast.warning().seconds(12.0),
+                });
+            };
+            match hook.start(&said, show) {
+                Ok(()) => log::info!("command: handed off \"{said}\""),
+                Err(e) => {
+                    log::error!("command: could not start {}: {e}", hook.run[0]);
+                    self.ctx.sound(Sound::Error);
+                }
+            }
+        } else if std::env::var_os("LINFLOW_NO_PASTE").is_some() {
             log::info!("LINFLOW_NO_PASTE set; not pasting: {to_paste}");
         } else {
-            linflow_platform::paste(&to_paste, RESTORE_AFTER);
+            // A remote desktop app gets Control+V and more time for its clipboard to sync.
+            let front = linflow_platform::frontmost_app();
+            let how = RemoteApps::load(&self.ctx.data_dir).paste_for(front.as_ref().map(|a| a.id.as_str()));
+            if how.remote {
+                log::info!("paste: {} is a remote desktop; Control+V after {} ms", front.as_ref().map_or("", |a| a.id.as_str()), how.wait.as_millis());
+            }
+            linflow_platform::paste(&to_paste, how);
             // Then watch that field: a fix typed by hand becomes a dictionary correction.
             if settings.learn_corrections != linflow_core::learn::LearnMode::Off {
-                if let Some(app) = linflow_platform::frontmost_app() {
+                if let Some(app) = front {
                     self.readback.watch(&text, app.pid, &app.name, settings.learn_corrections);
                 }
             }
