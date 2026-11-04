@@ -41,9 +41,18 @@ fn pick_local(s: &linflow_core::settings::Settings, net: Arc<dyn linflow_core::n
     Err(why)
 }
 
-/// The model for running notes and the call tracker.
+/// The model for running notes and the call tracker, held loaded for the whole call.
 pub fn running_notes_model(ctx: &Context) -> Result<Box<dyn NoteModel + Send>, String> {
-    local_model(ctx).map(|m| Box::new(m) as Box<dyn NoteModel + Send>)
+    local_model(ctx).map(|m| Box::new(m.live()) as Box<dyn NoteModel + Send>)
+}
+
+/// Gives the local model's memory back once a call's last pass is done. The pass over the
+/// recording takes minutes, and the summary after it loads the model again in a few seconds.
+pub fn free_local_model(ctx: &Context) {
+    match local_model(ctx).and_then(|m| m.unload().map(|()| m.model)) {
+        Ok(model) => log::info!("meeting: {model} unloaded until the summary"),
+        Err(why) => log::info!("meeting: could not unload the local model: {why}"),
+    }
 }
 
 /// The model for summaries, recaps and questions.

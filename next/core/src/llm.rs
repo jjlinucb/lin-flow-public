@@ -170,6 +170,14 @@ pub const OLLAMA_MODEL: &str = "qwen2.5:7b";
 /// What a computer without the bigger model falls back to.
 pub const OLLAMA_SMALL_MODEL: &str = "qwen2.5:3b";
 
+/// How long Ollama holds the model in memory after a request. The 7b holds about 4.8 GB, a third
+/// of a 16 GB Mac that was swapping hard with it held 15 minutes after every call (2026-11-03).
+/// A summary, a recap or a question keeps it two minutes, long enough for a follow-up question.
+pub const KEEP_ALIVE: &str = "2m";
+/// During a call, running notes and the tracker keep it ten minutes, so a quiet stretch does not
+/// unload it mid-call; the meeting frees it itself once the last pass is done.
+pub const KEEP_ALIVE_LIVE: &str = "10m";
+
 /// Ollama's local HTTP API with a small instruct model. Nothing leaves the machine. Address it as
 /// 127.0.0.1, never localhost: Ollama binds IPv4 only, Windows tries ::1 first, and that dead
 /// connection takes longer to fail than the health check allows.
@@ -179,13 +187,35 @@ pub struct Ollama {
     net: Arc<dyn Transport>,
     /// Ollama before 0.5 knows `format: "json"` but not a schema.
     schema_unsupported: bool,
+    keep_alive: &'static str,
 }
 
 impl Ollama {
     pub fn new(host: &str, model: &str, net: Arc<dyn Transport>) -> Self {
         let host = if host.trim().is_empty() { OLLAMA_HOST } else { host.trim().trim_end_matches('/') };
         let model = if model.trim().is_empty() { OLLAMA_MODEL } else { model.trim() };
-        Ollama { host: host.into(), model: model.into(), net, schema_unsupported: false }
+        Ollama { host: host.into(), model: model.into(), net, schema_unsupported: false, keep_alive: KEEP_ALIVE }
+    }
+
+    /// The client for a call in progress: it keeps the model loaded through quiet stretches.
+    pub fn live(mut self) -> Self {
+        self.keep_alive = KEEP_ALIVE_LIVE;
+        self
+    }
+
+    /// Asks Ollama to drop the model from memory now (`keep_alive: 0` with no prompt). The next
+    /// request loads it again, in a few seconds.
+    pub fn unload(&self) -> Result<(), String> {
+        let body = json!({"model": self.model, "keep_alive": 0});
+        let r = self
+            .net
+            .send(&HttpRequest::post(format!("{}/api/generate", self.host), serde_json::to_vec(&body).unwrap()).header("Content-Type", "application/json").timeout(10))
+            .map_err(|e| format!("Ollama is not answering at {}: {e}", self.host))?;
+        if r.status == 200 {
+            Ok(())
+        } else {
+            Err(format!("Ollama {}: {}", r.status, String::from_utf8_lossy(&r.body).trim()))
+        }
     }
 
     /// None when the server answers and the model is there; otherwise one sentence saying what to
@@ -224,7 +254,7 @@ impl Ollama {
         let mut body = json!({
             "model": self.model,
             "stream": false,
-            "keep_alive": "15m",
+            "keep_alive": self.keep_alive,
             "options": {"temperature": if request.greedy { 0.0 } else { 0.1 }, "num_predict": request.max_tokens, "num_ctx": 8192},
             "messages": [{"role": "system", "content": instructions}, {"role": "user", "content": request.prompt}],
         });
@@ -322,6 +352,27 @@ mod tests {
         assert_eq!(o.check(), None, "a bare name matches any tag");
         let o = Ollama::new("", "phi4", canned(200, r#"{"models":[]}"#));
         assert!(o.check().unwrap().contains("ollama pull phi4"));
+    }
+
+    #[test]
+    fn ollama_holds_the_model_briefly_except_during_a_call_and_can_drop_it() {
+        let sent = |o: &mut Ollama, net: &Canned| -> Value {
+            o.chat(&Request { instructions: "i".into(), prompt: "p".into(), max_tokens: 10, lists: vec![], greedy: true }).unwrap();
+            serde_json::from_slice(net.seen.lock().unwrap().last().unwrap().body.as_ref().unwrap()).unwrap()
+        };
+        let net = canned(200, r#"{"message":{"content":"ok"}}"#);
+        let mut after = Ollama::new("", "qwen2.5:7b", net.clone());
+        assert_eq!(sent(&mut after, &net)["keep_alive"], KEEP_ALIVE, "a summary or a question holds it two minutes");
+        let mut live = Ollama::new("", "qwen2.5:7b", net.clone()).live();
+        assert_eq!(sent(&mut live, &net)["keep_alive"], KEEP_ALIVE_LIVE, "a call holds it through quiet stretches");
+
+        let net = canned(200, "{}");
+        Ollama::new("", "qwen2.5:7b", net.clone()).unload().unwrap();
+        let r = net.seen.lock().unwrap()[0].clone();
+        assert_eq!((r.method, r.url.as_str()), ("POST", "http://127.0.0.1:11434/api/generate"));
+        let body: Value = serde_json::from_slice(r.body.as_ref().unwrap()).unwrap();
+        assert_eq!(body, json!({"model": "qwen2.5:7b", "keep_alive": 0}), "no prompt, so nothing runs and nothing loads");
+        assert!(Ollama::new("", "qwen2.5:7b", canned(404, "model not found")).unload().unwrap_err().contains("404"));
     }
 
     #[test]
