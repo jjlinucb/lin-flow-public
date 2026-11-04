@@ -413,6 +413,7 @@ impl Meetings {
         let settings = self.ctx.settings();
         let work = self.work.clone();
         let ctx = self.ctx.clone();
+        let meetings = self.clone();
         let note_id = id.clone();
         std::thread::spawn(move || {
             // The last running-notes pass reads the live transcript; only then is the transcript
@@ -425,6 +426,11 @@ impl Meetings {
                 work.save_work_audio(&note_id);
             }
             if settings.keep_meeting_audio && settings.transcribe_after_meeting && ctx.notes.has_audio(&note_id) {
+                // The live passes held the model for ten minutes; the pass over the recording
+                // does not need it, so it is let go now, unless another call has already started.
+                if meetings.active.lock().unwrap().is_none() {
+                    notes::free_local_model(&ctx);
+                }
                 work.transcribe_from_audio(&note_id, true);
             } else {
                 work.summarize(&note_id, true);
