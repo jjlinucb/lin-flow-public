@@ -902,6 +902,7 @@ textarea {
 
 /* The call tracker: the toasts' dark glass, a column at the edge of the screen. */
 .tracker-panel {
+  position: relative;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -910,6 +911,20 @@ textarea {
   border-radius: 12px;
   overflow: hidden;
   font-size: 12.5px;
+}
+
+/* The resize corner, bottom right: two short diagonal strokes, the usual sign for "drag me". */
+.tracker-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background:
+    linear-gradient(135deg, transparent 55%, rgba(255, 255, 255, 0.35) 55%, rgba(255, 255, 255, 0.35) 62%, transparent 62%),
+    linear-gradient(135deg, transparent 75%, rgba(255, 255, 255, 0.35) 75%, rgba(255, 255, 255, 0.35) 82%, transparent 82%);
 }
 
 .tracker-head {
