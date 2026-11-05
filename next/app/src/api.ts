@@ -284,6 +284,30 @@ export async function startDragging(): Promise<void> {
   await getCurrentWindow().startDragging();
 }
 
+/** The current window's size in points. */
+export async function windowSize(): Promise<[number, number]> {
+  if (!inTauri) return [window.innerWidth, window.innerHeight];
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const w = getCurrentWindow();
+  const [size, scale] = await Promise.all([w.innerSize(), w.scaleFactor()]);
+  return [size.width / scale, size.height / scale];
+}
+
+/**
+ * Sets the current window's size in points. With `keepRight`, the right edge stays where it was,
+ * so a panel placed at the screen's right edge grows to the left instead of off the screen.
+ */
+export async function setWindowSize(width: number, height: number, keepRight = false): Promise<void> {
+  if (!inTauri) return;
+  const { getCurrentWindow, LogicalPosition, LogicalSize } = await import("@tauri-apps/api/window");
+  const w = getCurrentWindow();
+  if (keepRight) {
+    const [[oldWidth], pos, scale] = await Promise.all([windowSize(), w.outerPosition(), w.scaleFactor()]);
+    await w.setPosition(new LogicalPosition(pos.x / scale - (width - oldWidth), pos.y / scale));
+  }
+  await w.setSize(new LogicalSize(width, height));
+}
+
 // Formatting shared by the pages.
 
 export function clock(seconds: number): string {

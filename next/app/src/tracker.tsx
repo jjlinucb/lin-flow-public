@@ -5,8 +5,9 @@
 
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { call, clock, onEvent, startDragging, type NoteDetail, type StatusView, type Tracker, type TrackerItem } from "./api";
+import { call, clock, onEvent, setWindowSize, startDragging, windowSize, type NoteDetail, type StatusView, type Tracker, type TrackerItem } from "./api";
 import { Close } from "./icons";
+import { dragSize, savedSize } from "./resize";
 import "./styles.css";
 
 /** The running notes' last few bullets, each split into its "[m:ss]" stamp and its text. */
@@ -20,6 +21,44 @@ function lastNotes(markdown: string, n: number): [string, string][] {
       return m ? [m[1], m[2]] : ["", l.slice(2)];
     })
     .slice(-n);
+}
+
+/** Where the size John last dragged the panel to is kept. */
+const SIZE_KEY = "tracker-size";
+
+/** The bottom-right corner: drag it to resize the panel, and the size is kept for next time. */
+function Grip() {
+  const start = useRef<{ width: number; height: number; x: number; y: number } | null>(null);
+  const last = useRef<[number, number] | null>(null);
+  return (
+    <div
+      class="tracker-grip"
+      title="Drag to resize"
+      onPointerDown={async (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        const { screenX: x, screenY: y } = e;
+        const [width, height] = await windowSize();
+        start.current = { width, height, x, y };
+      }}
+      onPointerMove={(e) => {
+        if (!start.current) return;
+        last.current = dragSize(start.current, e.screenX, e.screenY);
+        setWindowSize(...last.current);
+      }}
+      onPointerUp={() => {
+        start.current = null;
+        if (!last.current) return;
+        try {
+          localStorage.setItem(SIZE_KEY, JSON.stringify(last.current));
+        } catch {
+          // A size that is not kept only means the default next time.
+        }
+        last.current = null;
+      }}
+    />
+  );
 }
 
 function Panel() {
@@ -45,6 +84,18 @@ function Panel() {
     });
     call<Tracker>("tracker", { id: note }).then(setTracker);
   };
+
+  // The size John last dragged it to, once, when the page loads. The panel starts at the right
+  // edge of the screen, so it keeps that edge and grows to the left.
+  useEffect(() => {
+    let size: [number, number] | null = null;
+    try {
+      size = savedSize(localStorage.getItem(SIZE_KEY));
+    } catch {
+      // No storage: the default size.
+    }
+    if (size) setWindowSize(size[0], size[1], true);
+  }, []);
 
   useEffect(() => {
     // The panel is built hidden when the app starts, and a hidden page can miss the event that a
@@ -141,6 +192,7 @@ function Panel() {
             ))
           : null}
       </div>
+      <Grip />
     </div>
   );
 }
