@@ -379,8 +379,9 @@ fn apply_dock(app: &AppHandle, show: bool) {
 // MARK: tray
 
 // The Mac's menu bar takes a black template glyph and tints it, and it never changes. It is Lin
-// WUD's JL mark, rendered from `Icon.draw` in the lin-wud repo (`linwud/mac/Sources/LinWUD/
-// Icon.swift`) at 64 px: Lin WUD and Zap gave up their own menu bar items, so this is the one icon
+// WUD's JL mark, rendered at 64 px from `Icon.draw` in lin-wud's `mac/Sources/LinWUD/Icon.swift`,
+// which lin-wud#194 deleted (read it with `git show 459dfda^:mac/Sources/LinWUD/Icon.swift` there
+// to redraw it). Lin WUD and Zap gave up their own menu bar items, so this is the one icon
 // for all three (John, 2026-11-10). It is not a mic and has no recording look, because macOS
 // already draws its own orange mic while one is open, and no app can hide that. Windows has no
 // such indicator and shows a tray icon as it is, so there it is the Lin Flow mark, with a red dot
