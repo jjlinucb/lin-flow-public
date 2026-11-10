@@ -21,6 +21,8 @@ const PILL_BOTTOM_MARGIN: f64 = 110.0;
 const TOAST_WIDTH: f64 = 360.0;
 
 struct Tray {
+    // Only Windows swaps the icon; the Mac's stays as `build_tray` set it.
+    #[cfg_attr(not(windows), allow(dead_code))]
     icon: TrayIcon,
     status: MenuItem<tauri::Wry>,
     note: MenuItem<tauri::Wry>,
@@ -376,16 +378,17 @@ fn apply_dock(app: &AppHandle, show: bool) {
 
 // MARK: tray
 
-// The Mac's menu bar takes a black template glyph and tints it. Windows shows a tray icon as it
-// is, so there it is the Lin Flow mark, with a red dot while recording, as the C# app had.
+// The Mac's menu bar takes a black template glyph and tints it, and it never changes: while the
+// mic is open macOS draws its own orange dot, which no app can hide, so a recording look here
+// only said the same thing twice (John, 2026-11-10). Windows has no such dot and shows a tray
+// icon as it is, so there it is the Lin Flow mark, with a red dot while recording, as the C# app
+// had.
 #[cfg(windows)]
 const TRAY_IDLE: &[u8] = include_bytes!("../icons/windows/tray.png");
 #[cfg(windows)]
 const TRAY_BUSY: &[u8] = include_bytes!("../icons/windows/tray-recording.png");
 #[cfg(not(windows))]
 const TRAY_IDLE: &[u8] = include_bytes!("../icons/tray@2x.png");
-#[cfg(not(windows))]
-const TRAY_BUSY: &[u8] = include_bytes!("../icons/tray-recording.png");
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let state = app.state::<App>();
@@ -444,11 +447,12 @@ fn update_tray(app: &AppHandle, state: Option<(&str, &str)>) {
     let recording = s.meetings.recording_id().is_some();
     let _ = t.note.set_text(if recording { "Stop Meeting Note" } else { "Start Meeting Note" });
     let _ = t.pill.set_checked(s.ctx.settings().show_hud);
-    let busy = phase == "recording" || recording;
-    let bytes = if busy { TRAY_BUSY } else { TRAY_IDLE };
-    if let Ok(img) = tauri::image::Image::from_bytes(bytes) {
-        let _ = t.icon.set_icon(Some(img));
-        let _ = t.icon.set_icon_as_template(!busy);
+    #[cfg(windows)]
+    {
+        let busy = phase == "recording" || recording;
+        if let Ok(img) = tauri::image::Image::from_bytes(if busy { TRAY_BUSY } else { TRAY_IDLE }) {
+            let _ = t.icon.set_icon(Some(img));
+        }
     }
 }
 
