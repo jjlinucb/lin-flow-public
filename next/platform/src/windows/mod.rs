@@ -36,6 +36,12 @@ fn image_path(pid: u32) -> Option<String> {
 }
 
 /// The app that owns the window in front, which is the one a paste goes to.
+/// Window titles for naming a meeting note after its call: Mac only so far, so a note here keeps
+/// its date name.
+pub fn window_titles(_bundle_id: &str) -> Vec<String> {
+    vec![]
+}
+
 pub fn frontmost_app() -> Option<App> {
     let window = unsafe { GetForegroundWindow() };
     if window.is_invalid() {

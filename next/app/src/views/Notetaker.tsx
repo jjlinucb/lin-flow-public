@@ -104,7 +104,7 @@ export function Notetaker(props: {
   );
 }
 
-function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, onError, onSelect }: Parameters<typeof Notetaker>[0] & { id: string }) {
+function NoteView({ id, notes, recordingId, live, segmentsAdded, settings, onSettings, onError, onSelect }: Parameters<typeof Notetaker>[0] & { id: string }) {
   const [d, setD] = useState<NoteDetail | null>(null);
   const [title, setTitle] = useState("");
   const [myNotes, setMyNotes] = useState("");
@@ -134,6 +134,15 @@ function NoteView({ id, recordingId, live, segmentsAdded, settings, onSettings, 
   useEffect(() => {
     load().then(() => call<NoteDetail | null>("note", { id }).then((x) => x && setMyNotes(x.myNotes)));
   }, [id, live.version]);
+
+  // A recording names its note after the call a moment after it starts, which reaches the list.
+  // The title box follows, unless John is typing in it.
+  const listedTitle = notes.find((n) => n.id === id)?.title;
+  useEffect(() => {
+    if (!d || !listedTitle || listedTitle === d.note.title) return;
+    setD({ ...d, note: { ...d.note, title: listedTitle } });
+    if (!document.activeElement?.classList.contains("title-input")) setTitle(listedTitle);
+  }, [listedTitle]);
 
   // New lines while recording arrive as events, without reloading the whole note.
   useEffect(() => {

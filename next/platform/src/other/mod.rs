@@ -47,6 +47,12 @@ pub fn trusted(_prompt: bool) -> bool {
     false
 }
 
+/// Window titles for naming a meeting note after its call: Mac only so far, so a note here keeps
+/// its date name.
+pub fn window_titles(_bundle_id: &str) -> Vec<String> {
+    vec![]
+}
+
 pub fn frontmost_app() -> Option<App> {
     None
 }
