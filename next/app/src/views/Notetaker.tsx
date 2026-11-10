@@ -107,6 +107,8 @@ export function Notetaker(props: {
 function NoteView({ id, notes, recordingId, live, segmentsAdded, settings, onSettings, onError, onSelect }: Parameters<typeof Notetaker>[0] & { id: string }) {
   const [d, setD] = useState<NoteDetail | null>(null);
   const [title, setTitle] = useState("");
+  // John has typed in the title box since it was last filled in: only then does leaving it rename.
+  const typed = useRef(false);
   const [myNotes, setMyNotes] = useState("");
   const [tab, setTab] = useState<Tab>("summary");
   const [menu, setMenu] = useState(false);
@@ -136,12 +138,12 @@ function NoteView({ id, notes, recordingId, live, segmentsAdded, settings, onSet
   }, [id, live.version]);
 
   // A recording names its note after the call a moment after it starts, which reaches the list.
-  // The title box follows, unless John is typing in it.
+  // The title box follows, unless John has typed in it.
   const listedTitle = notes.find((n) => n.id === id)?.title;
   useEffect(() => {
     if (!d || !listedTitle || listedTitle === d.note.title) return;
     setD({ ...d, note: { ...d.note, title: listedTitle } });
-    if (!document.activeElement?.classList.contains("title-input")) setTitle(listedTitle);
+    if (!typed.current) setTitle(listedTitle);
   }, [listedTitle]);
 
   // New lines while recording arrive as events, without reloading the whole note.
@@ -167,7 +169,8 @@ function NoteView({ id, notes, recordingId, live, segmentsAdded, settings, onSet
   const otherRecording = recordingId !== null && !recording;
 
   const rename = () => {
-    if (title.trim() && title !== d.note.title) call("rename_note", { id, title }).catch(fail);
+    if (typed.current && title.trim() && title !== d.note.title) call("rename_note", { id, title }).catch(fail);
+    typed.current = false;
   };
   const editNotes = (text: string) => {
     setMyNotes(text);
@@ -188,7 +191,10 @@ function NoteView({ id, notes, recordingId, live, segmentsAdded, settings, onSet
   return (
     <div class="note-detail" onClick={() => menu && setMenu(false)}>
       <div class="row">
-        <input class="title-input" value={title} onInput={(e) => setTitle(e.currentTarget.value)} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+        <input class="title-input" value={title} onInput={(e) => {
+            typed.current = true;
+            setTitle(e.currentTarget.value);
+          }} onBlur={rename} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
         <div class="menu">
           <button
             class="icon"

@@ -220,7 +220,15 @@ impl Meetings {
         // The window titles are read outside the lock: Accessibility may take its half second.
         let Some((id, app)) = pending else { return };
         let apps: Vec<&str> = app.as_deref().into_iter().chain(users.iter().map(String::as_str)).collect();
-        if name_after_call(&self.ctx, &id, &apps, linflow_platform::window_titles) {
+        // Renamed under the lock, so `stop` (which takes the recording out first, then saves the
+        // note) never writes back a copy loaded before the rename.
+        let rename_if_recording = |title: &str| {
+            let mut guard = self.active.lock().unwrap();
+            let Some(a) = guard.as_mut().filter(|a| a.note_id == id) else { return false };
+            a.named = notes::rename(&self.ctx, &id, title).is_ok();
+            a.named
+        };
+        if name_after_call(&self.ctx, &id, &apps, linflow_platform::window_titles, rename_if_recording) {
             if let Some(a) = self.active.lock().unwrap().as_mut().filter(|a| a.note_id == id) {
                 a.named = true;
             }
@@ -879,16 +887,25 @@ fn tracker_loop(ctx: Arc<Context>, id: String, stop: Arc<AtomicBool>) {
 
 /// Renames note `id` after the call when its title is still the date one Lin Flow made up and a
 /// call app in `apps` (microphone users) has a window naming the meeting. `titles` reads the
-/// window titles of one app id. Returns whether the title is settled: named now, or not Lin
-/// Flow's to change, because John typed one (his rename always wins) or the note is gone.
-fn name_after_call(ctx: &Context, id: &str, apps: &[&str], titles: impl Fn(&str) -> Vec<String>) -> bool {
+/// window titles of one app id, and `rename` saves the name, returning whether it did. Returns
+/// whether the title is settled: named now, or not Lin Flow's to change, because John typed one
+/// (his rename always wins) or the note is gone.
+fn name_after_call(ctx: &Context, id: &str, apps: &[&str], titles: impl Fn(&str) -> Vec<String>, rename: impl FnOnce(&str) -> bool) -> bool {
     use linflow_core::meeting::{detect::call_app_name, title};
+    let mut names: Vec<&str> = vec![];
+    for name in apps.iter().filter_map(|a| call_app_name(a)) {
+        if !title::window_owners(name).is_empty() && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    // Most calls (Zoom, a browser) have no window to read: no need to open the note each look.
+    if names.is_empty() {
+        return false;
+    }
     let still_dated = || ctx.notes.load(id).is_some_and(|n| title::is_automatic(&n.title));
     if !still_dated() {
         return true;
     }
-    let mut names: Vec<&str> = apps.iter().filter_map(|a| call_app_name(a)).collect();
-    names.dedup();
     for name in names {
         let windows: Vec<String> = title::window_owners(name).iter().flat_map(|owner| titles(owner)).collect();
         let Some(found) = title::call_title(name, &windows) else { continue };
@@ -897,16 +914,12 @@ fn name_after_call(ctx: &Context, id: &str, apps: &[&str], titles: impl Fn(&str)
             return true;
         }
         // The name itself stays out of the log, which sessions read: meeting names stay on the Mac.
-        return match notes::rename(ctx, id, &found) {
-            Ok(_) => {
-                log::info!("meeting: named the note after the {name} call's window");
-                true
-            }
-            Err(e) => {
-                log::warn!("meeting: could not name the note after the {name} call: {e}");
-                false
-            }
-        };
+        if rename(&found) {
+            log::info!("meeting: named the note after the {name} call's window");
+            return true;
+        }
+        log::warn!("meeting: could not name the note after the {name} call");
+        return false;
     }
     false
 }
@@ -929,31 +942,32 @@ mod tests {
             }
         };
         let title = |id: &str| ctx.notes.load(id).unwrap().title;
+        let rename = |id: &str| { let id = id.to_string(); let ctx = &ctx; move |t: &str| notes::rename(ctx, &id, t).is_ok() };
         let teams = ["com.johnlin.linflow.next", "com.microsoft.teams2.helper", "com.microsoft.teams2.modulehost"];
 
         // New, then Record: no app from an offer, Teams' helpers on the microphone.
         let note = ctx.notes.create("Meeting Nov 10, 10:02 AM").unwrap();
-        assert!(name_after_call(&ctx, &note.id, &teams, windows));
+        assert!(name_after_call(&ctx, &note.id, &teams, windows, rename(&note.id)));
         assert_eq!(title(&note.id), "Budget Review");
-        assert!(name_after_call(&ctx, &note.id, &teams, |_| panic!("a settled title reads no windows")));
+        assert!(name_after_call(&ctx, &note.id, &teams, |_| panic!("a settled title reads no windows"), rename(&note.id)));
 
         // Started from the offer to record.
         let offered = ctx.notes.create("Teams Meeting Nov 10, 10:02 AM").unwrap();
-        assert!(name_after_call(&ctx, &offered.id, &["com.microsoft.teams2.modulehost"], windows));
+        assert!(name_after_call(&ctx, &offered.id, &["com.microsoft.teams2.modulehost"], windows, rename(&offered.id)));
         assert_eq!(title(&offered.id), "Budget Review");
 
         // John's own title is never replaced.
         let typed = ctx.notes.create("Pat and me").unwrap();
-        assert!(name_after_call(&ctx, &typed.id, &teams, windows));
+        assert!(name_after_call(&ctx, &typed.id, &teams, windows, rename(&typed.id)));
         assert_eq!(title(&typed.id), "Pat and me");
 
         // Zoom shows no topic, and Teams before its call window opens: the date stays, and the
         // next look tries again.
         let zoom = ctx.notes.create("Zoom Meeting Nov 9, 11:01 AM").unwrap();
-        assert!(!name_after_call(&ctx, &zoom.id, &["us.zoom.xos"], windows));
+        assert!(!name_after_call(&ctx, &zoom.id, &["us.zoom.xos"], windows, rename(&zoom.id)));
         assert_eq!(title(&zoom.id), "Zoom Meeting Nov 9, 11:01 AM");
         let early = ctx.notes.create("Meeting Nov 10, 10:02 AM").unwrap();
-        assert!(!name_after_call(&ctx, &early.id, &teams, |_| vec!["Calendar".into()]));
+        assert!(!name_after_call(&ctx, &early.id, &teams, |_| vec!["Calendar".into()], rename(&early.id)));
         assert_eq!(title(&early.id), "Meeting Nov 10, 10:02 AM");
         let _ = std::fs::remove_dir_all(&dir);
     }
