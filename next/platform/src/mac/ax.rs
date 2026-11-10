@@ -3,6 +3,7 @@
 //! screen. Native apps report their focused text element; Chromium and Electron build their
 //! tree only once asked, so they are asked the way a screen reader does.
 
+use core_foundation::array::CFArray;
 use core_foundation::base::{CFType, TCFType};
 use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::CFDictionary;
@@ -165,4 +166,27 @@ pub fn frontmost_app() -> Option<(i32, String, String)> {
     let id = app.bundleIdentifier().map(|s| s.to_string()).unwrap_or_default();
     let name = app.localizedName().map(|s| s.to_string()).unwrap_or_default();
     Some((pid, id, name))
+}
+
+/// The titles of every window of the running apps with `bundle_id`, front window first, for
+/// naming a meeting note after its call (`meeting::title`). Read through the Accessibility grant
+/// the talk key holds; CGWindowList would hide other apps' titles without Screen Recording.
+pub fn window_titles(bundle_id: &str) -> Vec<String> {
+    set_timeout();
+    let mut titles = vec![];
+    let apps = NSRunningApplication::runningApplicationsWithBundleIdentifier(&objc2_foundation::NSString::from_str(bundle_id));
+    for app in apps.iter() {
+        unsafe {
+            let element = AXUIElementCreateApplication(app.processIdentifier());
+            if let Some(windows) = copy(element, "AXWindows").and_then(|v| v.downcast::<CFArray>()) {
+                for window in windows.iter() {
+                    if let Some(title) = copy(*window as AXUIElementRef, "AXTitle").and_then(|t| t.downcast::<CFString>()) {
+                        titles.push(title.to_string());
+                    }
+                }
+            }
+            CFRelease(element as CFTypeRef);
+        }
+    }
+    titles
 }

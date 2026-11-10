@@ -144,6 +144,10 @@ struct Active {
     app: Option<String>,
     /// Teams was on the microphone at some point: a work call, whose MP3 goes to the work OneDrive.
     work_call: bool,
+    /// The note's title is settled: named after the call, or typed by John. Until then each look
+    /// at the microphone tries the call's window again, so a note started before joining is named
+    /// once the call window opens.
+    named: bool,
     started: Instant,
     previous: f64,
     io: Sender<Io>,
@@ -199,15 +203,35 @@ impl Meetings {
         self.active.lock().unwrap().as_ref().map(|a| a.previous + a.started.elapsed().as_secs_f64())
     }
 
-    /// What the detector needs to know about the recording, or None when nothing records.
-    /// Who holds the microphone, read by the detector while a note records. Teams among them makes
-    /// the recording a work call.
+    /// Who holds the microphone, read by the detector every two seconds while a note records.
+    /// Teams among them makes the recording a work call. A call app among them names a note that
+    /// still has its date title after the call, however the recording was started: from the
+    /// offer, by the pill or menu, or New and then Record.
     pub fn saw_on_mic(&self, users: &[String]) {
-        let mut guard = self.active.lock().unwrap();
-        let Some(a) = guard.as_mut() else { return };
-        if !a.work_call && users.iter().any(|u| linflow_core::meeting::detect::is_work_call(u)) {
-            a.work_call = true;
-            log::info!("meeting: Teams is on the call; its MP3 will also go to the work OneDrive");
+        let pending = {
+            let mut guard = self.active.lock().unwrap();
+            let Some(a) = guard.as_mut() else { return };
+            if !a.work_call && users.iter().any(|u| linflow_core::meeting::detect::is_work_call(u)) {
+                a.work_call = true;
+                log::info!("meeting: Teams is on the call; its MP3 will also go to the work OneDrive");
+            }
+            (!a.named).then(|| (a.note_id.clone(), a.app.clone()))
+        };
+        // The window titles are read outside the lock: Accessibility may take its half second.
+        let Some((id, app)) = pending else { return };
+        let apps: Vec<&str> = app.as_deref().into_iter().chain(users.iter().map(String::as_str)).collect();
+        // Renamed under the lock, so `stop` (which takes the recording out first, then saves the
+        // note) never writes back a copy loaded before the rename.
+        let rename_if_recording = |title: &str| {
+            let mut guard = self.active.lock().unwrap();
+            let Some(a) = guard.as_mut().filter(|a| a.note_id == id) else { return false };
+            a.named = notes::rename(&self.ctx, &id, title).is_ok();
+            a.named
+        };
+        if name_after_call(&self.ctx, &id, &apps, linflow_platform::window_titles, rename_if_recording) {
+            if let Some(a) = self.active.lock().unwrap().as_mut().filter(|a| a.note_id == id) {
+                a.named = true;
+            }
         }
     }
 
@@ -354,6 +378,7 @@ impl Meetings {
             note_id: id.clone(),
             app: app.map(|a| a.to_lowercase()),
             work_call: app.is_some_and(linflow_core::meeting::detect::is_work_call),
+            named: false,
             started: now,
             previous,
             io: io_tx,
@@ -860,9 +885,92 @@ fn tracker_loop(ctx: Arc<Context>, id: String, stop: Arc<AtomicBool>) {
     }
 }
 
+/// Renames note `id` after the call when its title is still the date one Lin Flow made up and a
+/// call app in `apps` (microphone users) has a window naming the meeting. `titles` reads the
+/// window titles of one app id, and `rename` saves the name, returning whether it did. Returns
+/// whether the title is settled: named now, or not Lin Flow's to change, because John typed one
+/// (his rename always wins) or the note is gone.
+fn name_after_call(ctx: &Context, id: &str, apps: &[&str], titles: impl Fn(&str) -> Vec<String>, rename: impl FnOnce(&str) -> bool) -> bool {
+    use linflow_core::meeting::{detect::call_app_name, title};
+    let mut names: Vec<&str> = vec![];
+    for name in apps.iter().filter_map(|a| call_app_name(a)) {
+        if !title::window_owners(name).is_empty() && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    // Most calls (Zoom, a browser) have no window to read: no need to open the note each look.
+    if names.is_empty() {
+        return false;
+    }
+    let still_dated = || ctx.notes.load(id).is_some_and(|n| title::is_automatic(&n.title));
+    if !still_dated() {
+        return true;
+    }
+    for name in names {
+        let windows: Vec<String> = title::window_owners(name).iter().flat_map(|owner| titles(owner)).collect();
+        let Some(found) = title::call_title(name, &windows) else { continue };
+        // John may have typed a title while the windows were read.
+        if !still_dated() {
+            return true;
+        }
+        // The name itself stays out of the log, which sessions read: meeting names stay on the Mac.
+        if rename(&found) {
+            log::info!("meeting: named the note after the {name} call's window");
+            return true;
+        }
+        log::warn!("meeting: could not name the note after the {name} call");
+        return false;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dated_note_takes_the_calls_name_and_a_typed_one_stays() {
+        let dir = std::env::temp_dir().join(format!("linflow-calltitle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let events: crate::events::Sink = Arc::new(|_| {});
+        let ctx = Context::new(dir.clone(), events);
+        let windows = |owner: &str| -> Vec<String> {
+            match owner {
+                "com.microsoft.teams2" => vec!["Calendar".into(), "Budget Review".into()],
+                "us.zoom.xos" => vec!["Zoom Meeting".into()],
+                _ => vec![],
+            }
+        };
+        let title = |id: &str| ctx.notes.load(id).unwrap().title;
+        let rename = |id: &str| { let id = id.to_string(); let ctx = &ctx; move |t: &str| notes::rename(ctx, &id, t).is_ok() };
+        let teams = ["com.johnlin.linflow.next", "com.microsoft.teams2.helper", "com.microsoft.teams2.modulehost"];
+
+        // New, then Record: no app from an offer, Teams' helpers on the microphone.
+        let note = ctx.notes.create("Meeting Nov 10, 10:02 AM").unwrap();
+        assert!(name_after_call(&ctx, &note.id, &teams, windows, rename(&note.id)));
+        assert_eq!(title(&note.id), "Budget Review");
+        assert!(name_after_call(&ctx, &note.id, &teams, |_| panic!("a settled title reads no windows"), rename(&note.id)));
+
+        // Started from the offer to record.
+        let offered = ctx.notes.create("Teams Meeting Nov 10, 10:02 AM").unwrap();
+        assert!(name_after_call(&ctx, &offered.id, &["com.microsoft.teams2.modulehost"], windows, rename(&offered.id)));
+        assert_eq!(title(&offered.id), "Budget Review");
+
+        // John's own title is never replaced.
+        let typed = ctx.notes.create("Pat and me").unwrap();
+        assert!(name_after_call(&ctx, &typed.id, &teams, windows, rename(&typed.id)));
+        assert_eq!(title(&typed.id), "Pat and me");
+
+        // Zoom shows no topic, and Teams before its call window opens: the date stays, and the
+        // next look tries again.
+        let zoom = ctx.notes.create("Zoom Meeting Nov 9, 11:01 AM").unwrap();
+        assert!(!name_after_call(&ctx, &zoom.id, &["us.zoom.xos"], windows, rename(&zoom.id)));
+        assert_eq!(title(&zoom.id), "Zoom Meeting Nov 9, 11:01 AM");
+        let early = ctx.notes.create("Meeting Nov 10, 10:02 AM").unwrap();
+        assert!(!name_after_call(&ctx, &early.id, &teams, |_| vec!["Calendar".into()], rename(&early.id)));
+        assert_eq!(title(&early.id), "Meeting Nov 10, 10:02 AM");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn jitter_never_pads_but_a_stall_does() {

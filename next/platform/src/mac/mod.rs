@@ -17,6 +17,8 @@ pub fn trusted(prompt: bool) -> bool {
     ax::trusted(prompt)
 }
 
+pub use ax::window_titles;
+
 pub fn frontmost_app() -> Option<App> {
     ax::frontmost_app().map(|(pid, id, name)| App { pid: pid as u32, id, name })
 }
