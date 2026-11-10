@@ -378,11 +378,11 @@ fn apply_dock(app: &AppHandle, show: bool) {
 
 // MARK: tray
 
-// The Mac's menu bar takes a black template glyph and tints it, and it never changes: while the
-// mic is open macOS draws its own orange dot, which no app can hide, so a recording look here
-// only said the same thing twice (John, 2026-11-10). Windows has no such dot and shows a tray
-// icon as it is, so there it is the Lin Flow mark, with a red dot while recording, as the C# app
-// had.
+// The Mac's menu bar takes a black template glyph and tints it: the Lin Flow L, cut from the app
+// icon, and it never changes. While the mic is open macOS draws its own orange mic, which no app
+// can hide, so a mic here, or a recording look, only said the same thing twice (John,
+// 2026-11-10). Windows has no such indicator and shows a tray icon as it is, so there it is the
+// full-color mark, with a red dot while recording, as the C# app had.
 #[cfg(windows)]
 const TRAY_IDLE: &[u8] = include_bytes!("../icons/windows/tray.png");
 #[cfg(windows)]
