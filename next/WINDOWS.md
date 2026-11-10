@@ -15,7 +15,7 @@ installed:
 | Installed at | `/Applications/Lin Flow.app` | `%LOCALAPPDATA%\Programs\Lin Flow\lin-flow.exe`, with `linflow.exe` and `native\` |
 | Data | `~/Library/Application Support/Lin Flow` | `%APPDATA%\Lin Flow` |
 | Updates | `mac-build.sh --install`, when John asks | Settings > App > Updates > Check for updates, then Update |
-| Tray / menu bar | black template mic, tinted by macOS, the same while recording (macOS shows its own orange mic dot) | the Lin Flow mark (`icons/windows/tray.png`), with a red dot while recording |
+| Tray / menu bar | the Lin Flow L as a black template, tinted by macOS, the same while recording (macOS shows its own orange mic) | the Lin Flow mark (`icons/windows/tray.png`), with a red dot while recording |
 | App icon | `icons/icon.icns` | `icons/windows/lin-flow.ico`, the C# app's full-size mark |
 
 ## How an update reaches a Windows computer
