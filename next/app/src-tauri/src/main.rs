@@ -378,11 +378,13 @@ fn apply_dock(app: &AppHandle, show: bool) {
 
 // MARK: tray
 
-// The Mac's menu bar takes a black template glyph and tints it: the Lin Flow L, cut from the app
-// icon, and it never changes. While the mic is open macOS draws its own orange mic, which no app
-// can hide, so a mic here, or a recording look, only said the same thing twice (John,
-// 2026-11-10). Windows has no such indicator and shows a tray icon as it is, so there it is the
-// full-color mark, with a red dot while recording, as the C# app had.
+// The Mac's menu bar takes a black template glyph and tints it, and it never changes. It is Lin
+// WUD's JL mark, rendered from `Icon.draw` in the lin-wud repo (`linwud/mac/Sources/LinWUD/
+// Icon.swift`) at 64 px: Lin WUD and Zap gave up their own menu bar items, so this is the one icon
+// for all three (John, 2026-11-10). It is not a mic and has no recording look, because macOS
+// already draws its own orange mic while one is open, and no app can hide that. Windows has no
+// such indicator and shows a tray icon as it is, so there it is the Lin Flow mark, with a red dot
+// while recording, as the C# app had.
 #[cfg(windows)]
 const TRAY_IDLE: &[u8] = include_bytes!("../icons/windows/tray.png");
 #[cfg(windows)]
