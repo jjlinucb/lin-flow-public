@@ -2,18 +2,18 @@
 The dictionary file: `replacements_file` and `parse_replacements` in
 `next/core/src/text/glossary.rs`.
 
-Promise: saving the dictionary keeps, word for word, every line that isn't a correction (no
-`=>` in it, or it starts with #). And reading the saved file back gives exactly the corrections
+Promise: saving the dictionary keeps, word for word, every line that isn't a correction (any
+line the parser doesn't read as one). And reading the saved file back gives exactly the corrections
 that were saved, in the same order.
 
 The model works on lines and takes the line parser (`parse`) and the writer's test for a rule
-line (`ruleLike`, a line with `=>` not starting with #) as given, with what it needs of them: a
+line (`ruleLike`, a line the parser reads as a correction) as given, with what it needs of them: a
 written correction reads back as itself, Lin Flow's two header lines read as nothing, and a line
 that is not rule-like reads as nothing. `next/core/tests/laws.rs` (`dictionary_save_*`) checks
 those on the real code, and the whole promise on the real functions, over generated dictionaries.
 
-Not promised: a rule-like line the parser cannot read, such as `=> Lin Flow` with nothing before
-the arrow, is dropped on save. That is a question for John, not something changed here.
+A line like `=> Lin Flow`, with nothing before the arrow, is not rule-like, so it is kept on save
+(John's call, 2026-11-10).
 -/
 namespace LinFlow.Dictionary
 

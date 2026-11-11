@@ -17,8 +17,8 @@ still run.
    pasted as dictation.** `LinFlow/Command.lean`, `only_after_the_wake_word`. Code:
    `spoken_command` in `service/src/command.rs`. Tie-in: `service/tests/proofs.rs` runs it on
    the 3,000 takes in `vectors.json`, for the words "Zap" and "Zapdos".
-2. **The dictionary file: saving keeps, word for word, every line that isn't a correction (no
-   `=>` in it, or it starts with #). Reading the saved file back gives exactly the corrections
+2. **The dictionary file: saving keeps, word for word, every line that isn't a correction (any
+   line the parser doesn't read as one, such as a comment or `=> Lin Flow`). Reading the saved file back gives exactly the corrections
    that were saved, in the same order.** `LinFlow/Dictionary.lean`. Code: `replacements_file`
    and `parse_replacements` in `core/src/text/glossary.rs`. Tie-in: the `dictionary_save_*`
    laws in `core/tests/laws.rs`.
@@ -26,9 +26,6 @@ still run.
 ## What is not proved
 
 - The command key and the `heard_as` mishearings (`Hook::command`), and letters outside ASCII.
-- A line with `=>` that the parser cannot read, such as `=> Lin Flow` with nothing before the
-  arrow, is dropped on save. `dictionary_save_drops_an_arrow_with_nothing_before_it` pins it.
-  Whether to keep such a line is John's call.
 - The vectors and laws are samples, not every input.
 
 ## Running it
