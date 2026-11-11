@@ -350,6 +350,9 @@ impl NotesStore {
     pub fn running_notes(&self, id: &str) -> String {
         fs::read_to_string(self.running_notes_path(id)).unwrap_or_default()
     }
+    pub fn save_running_notes(&self, id: &str, markdown: &str) -> std::io::Result<()> {
+        write_atomic(&self.running_notes_path(id), markdown.as_bytes())
+    }
     pub fn append_running_notes(&self, id: &str, markdown: &str) -> std::io::Result<()> {
         if markdown.is_empty() {
             return Ok(());

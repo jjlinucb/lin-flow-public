@@ -187,6 +187,8 @@ export interface TrackerItem {
   /** A question's angle for answering; an action's owner. */
   detail: string;
   done: boolean;
+  /** Set after the call when the transcript rebuilt from the audio does not back it: why. */
+  unbacked?: string;
 }
 
 export interface Tracker {

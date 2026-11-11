@@ -560,3 +560,48 @@ pub fn tracker_test(args: &[String]) {
     let n = seconds.len().max(1) as f64;
     eprintln!("[{}: {} passes, {:.1} s each on average, {:.1} s at most]", model.name(), seconds.len(), seconds.iter().sum::<f64>() / n, seconds.iter().cloned().fold(0.0, f64::max));
 }
+
+/// The end-of-call check over a saved note, read-only: what it would flag in the tracker, the
+/// running notes and the summary, and why. Nothing in the note changes.
+pub fn backing_test(args: &[String]) {
+    use linflow_core::llm::Ollama;
+    use linflow_core::meeting::backing;
+    use linflow_core::meeting::tracker::{Kind, Tracker};
+    use summary::NoteModel;
+    let f = flags(args);
+    let Some(dir) = f.positional.get(1).map(Path::new) else { usage() };
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+    let segments: Vec<TranscriptSegment> = read("transcript.jsonl").lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+    if segments.is_empty() {
+        eprintln!("{}: no transcript.jsonl", dir.display());
+        std::process::exit(1)
+    }
+    let tracker: Tracker = serde_json::from_str(&read("tracker.json")).unwrap_or_default();
+    let settings = linflow_core::settings::SettingsFile::load(&paths::settings_file()).values;
+    let name = f.values.get("model").cloned().unwrap_or_else(|| linflow_core::llm::OLLAMA_MODEL.into());
+    let mut model = Ollama::new(&settings.ollama_host, &name, std::sync::Arc::new(linflow_core::net::Ureq));
+    if let Some(why) = model.check() {
+        eprintln!("{why}");
+        std::process::exit(1)
+    }
+    let t0 = Instant::now();
+    let fail = |e: summary::ModelError| -> ! {
+        eprintln!("{e}");
+        std::process::exit(1)
+    };
+    let (checked, counts) = backing::check_tracker(&mut model, &segments, &tracker).unwrap_or_else(|e| fail(e));
+    for i in &checked.items {
+        let kind = if i.kind == Kind::Question { "Q" } else { "TO DO" };
+        let verdict = i.unbacked.as_deref().map(|w| format!("FLAG ({w})")).unwrap_or_else(|| "ok".into());
+        println!("tracker [{}] {kind} {}: {} -> {verdict}", linflow_core::notes::clock(i.at), i.detail, i.text);
+    }
+    println!("tracker: {} checked, {} flagged", counts.checked, counts.flagged);
+    for file in ["running-notes.md", "summary.md"] {
+        let (text, c) = backing::check_markdown(&mut model, &segments, &read(file)).unwrap_or_else(|e| fail(e));
+        for line in text.lines().filter(|l| l.ends_with(backing::MARK)) {
+            println!("{file} FLAG {}", line.trim_end_matches(backing::MARK));
+        }
+        println!("{file}: {} checked, {} flagged", c.checked, c.flagged);
+    }
+    eprintln!("[{}: {:.0} s]", model.name(), t0.elapsed().as_secs_f64());
+}

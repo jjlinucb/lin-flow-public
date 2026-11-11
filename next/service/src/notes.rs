@@ -6,6 +6,7 @@ use crate::context::Context;
 use crate::engine::{self, SlotRecognizer};
 use crate::events::{Event, NoteEvent, Toast, ToastAction};
 use linflow_core::llm::{self, Ollama};
+use linflow_core::meeting::backing;
 use linflow_core::meeting::detect::Recap;
 use linflow_core::meeting::summary::{self, Kind, NoteModel};
 use linflow_core::meeting::tracker::Tracker;
@@ -208,6 +209,7 @@ impl NoteWork {
         std::thread::Builder::new()
             .name("linflow.summary".into())
             .spawn(move || {
+                let mut recapped = false;
                 match summary_model(&me.ctx) {
                     Ok(mut model) => {
                         let note = me.ctx.notes.load(&id);
@@ -227,6 +229,14 @@ impl NoteWork {
                             }
                             Err(e) => me.error(e.to_string()),
                         }
+                        // After a call, once the transcript is the one rebuilt from the audio: the
+                        // recap first, so John never waits on the check, then the check.
+                        if recap_after && me.ctx.notes.load(&id).is_some_and(|n| n.transcribed_from_audio_at.is_some()) {
+                            me.status(&id, None);
+                            me.show_recap(&id);
+                            recapped = true;
+                            me.check_backing(&id, model.as_mut());
+                        }
                     }
                     Err(why) => {
                         if !recap_after {
@@ -236,11 +246,66 @@ impl NoteWork {
                 }
                 me.status(&id, None);
                 me.summarizing.lock().unwrap().remove(&id);
-                if recap_after {
+                if recap_after && !recapped {
                     me.show_recap(&id);
                 }
             })
             .ok();
+    }
+
+    /// The end-of-call check (`backing`): every tracker item, running note and summary line the
+    /// rebuilt transcript does not back is flagged where John reads it. A model error leaves the
+    /// note as it was, since an unchecked note is no worse than before.
+    fn check_backing(&self, id: &str, model: &mut dyn NoteModel) {
+        let segments = self.ctx.notes.transcript(id);
+        self.status(id, Some("Checking the notes against the transcript…".into()));
+        let started = std::time::Instant::now();
+        let tracker = self.ctx.notes.tracker(id);
+        let result = (|| -> Result<(usize, usize), linflow_core::meeting::summary::ModelError> {
+            let (mut checked, mut flagged) = (0usize, 0usize);
+            if !tracker.items.is_empty() {
+                let (t, c) = backing::check_tracker(model, &segments, &tracker)?;
+                (checked, flagged) = (checked + c.checked, flagged + c.flagged);
+                // The check takes minutes, and John may tick items meanwhile: only the flags are
+                // carried onto the tracker as it is now.
+                let mut t2 = self.ctx.notes.tracker(id);
+                for item in &mut t2.items {
+                    if let Some(found) = t.items.iter().find(|i| i.id == item.id) {
+                        item.unbacked = found.unbacked.clone();
+                    }
+                }
+                let t = t2;
+                let _ = self.ctx.notes.save_tracker(id, &t);
+                self.ctx.emit(Event::Note { event: NoteEvent::Tracker { id: id.into(), tracker: t } });
+            }
+            let running = self.ctx.notes.running_notes(id);
+            if !running.trim().is_empty() {
+                let (text, c) = backing::check_markdown(model, &segments, &running)?;
+                (checked, flagged) = (checked + c.checked, flagged + c.flagged);
+                // Notes added while it ran (a resumed recording) win: the check is left unsaved.
+                if self.ctx.notes.running_notes(id) == running {
+                    let _ = self.ctx.notes.save_running_notes(id, &text);
+                    self.ctx.emit(Event::Note { event: NoteEvent::RunningNotes { id: id.into(), text } });
+                }
+            }
+            if let Some(summary) = self.ctx.notes.summary(id).filter(|s| !s.trim().is_empty()) {
+                let (text, c) = backing::check_markdown(model, &segments, &summary)?;
+                (checked, flagged) = (checked + c.checked, flagged + c.flagged);
+                if self.ctx.notes.summary(id).as_deref() == Some(summary.as_str()) {
+                    let _ = self.ctx.notes.save_summary(id, &text);
+                    self.ctx.emit(Event::Note { event: NoteEvent::Summary { id: id.into(), text } });
+                }
+            }
+            Ok((checked, flagged))
+        })();
+        match result {
+            Ok((checked, flagged)) => {
+                log::info!("notes: {id} end-of-call check: {checked} lines, {flagged} flagged, {:.0} s", started.elapsed().as_secs_f64());
+                let _ = self.ctx.notes.append_event(id, &format!("end-of-call check: {checked} lines, {flagged} not backed by the transcript"));
+            }
+            Err(e) => log::error!("notes: {id} end-of-call check stopped: {e}"),
+        }
+        self.status(id, None);
     }
 
     /// "What did I miss": a few bullets on the last `minutes`, put above the summary.
@@ -599,7 +664,7 @@ mod tests {
         });
         let ctx = Context::new(dir.clone(), events);
         let note = ctx.notes.create("Standup").unwrap();
-        let item = |text: &str| Item { id: String::new(), kind: Kind::Question, at: 1.0, text: text.into(), detail: "Say when.".into(), done: false };
+        let item = |text: &str| Item { id: String::new(), kind: Kind::Question, at: 1.0, text: text.into(), detail: "Say when.".into(), done: false, unbacked: None };
         update_tracker(&ctx, &note.id, |t| {
             t.add(vec![item("Can it land by Friday?")]);
             true

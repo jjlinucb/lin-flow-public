@@ -188,6 +188,7 @@ function Panel() {
           ? done.map((i) => (
               <Row key={i.id} item={i} onToggle={toggle}>
                 <div>{i.kind === "action" ? `${i.detail}: ${i.text}` : i.text}</div>
+                {i.unbacked ? <div class="muted">Not backed by the transcript</div> : null}
               </Row>
             ))
           : null}

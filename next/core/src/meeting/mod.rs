@@ -3,6 +3,7 @@
 //! echo, and how running notes and summaries are filtered and merged. A speech engine comes in
 //! through `Recognizer`, a language model through `summary::NoteModel`.
 
+pub mod backing;
 pub mod detect;
 pub mod echo;
 pub mod live;

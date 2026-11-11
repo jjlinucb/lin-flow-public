@@ -33,6 +33,7 @@ fn usage() -> ! {
   linflow notes-test <audio> [--model <id>]     a file through the live transcriber, line by line
   linflow running-notes-test <transcript.jsonl> [--model claude|ollama]   replay a meeting's notes
   linflow tracker-test <transcript.jsonl> [--model qwen2.5:7b]   replay a meeting's call tracker
+  linflow backing-test <note folder> [--model qwen2.5:7b]   what the end-of-call check would flag, read-only
   These open the microphone, read another app's field or paste, so only when asked:
   linflow mic-test            one second from the default input
   linflow focus-test [--wait <s>]               whether the focused field can be read back
@@ -91,6 +92,7 @@ fn main() {
         "notes-test" => diag::notes_test(&args),
         "running-notes-test" => diag::running_notes_test(&args),
         "tracker-test" => diag::tracker_test(&args),
+        "backing-test" => diag::backing_test(&args),
         "mic-test" => diag::mic_test(),
         "focus-test" => diag::focus_test(&args),
         "paste" => diag::paste(&args),

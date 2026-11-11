@@ -47,6 +47,10 @@ pub struct Item {
     pub detail: String,
     #[serde(default)]
     pub done: bool,
+    /// Set by the end-of-call check (`backing`) when the rebuilt transcript does not back this
+    /// item: why, in a few words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unbacked: Option<String>,
 }
 
 /// `tracker.json`.
@@ -93,7 +97,8 @@ impl Tracker {
                     Kind::Question => format!("{} *{}*", i.text, i.detail),
                     Kind::Action => format!("{}: {}", i.detail, i.text),
                 };
-                md.push_str(&format!("- [{tick}] [{}] {line}\n", crate::notes::clock(i.at)));
+                let flag = if i.unbacked.is_some() { crate::meeting::backing::MARK } else { "" };
+                md.push_str(&format!("- [{tick}] [{}] {line}{flag}\n", crate::notes::clock(i.at)));
             }
             md.push('\n');
         }
@@ -165,11 +170,11 @@ pub fn pass(model: &mut dyn NoteModel, context: &str, fresh: &str, tracker: &Tra
     let questions = lists.first().cloned().unwrap_or_default();
     let john_spoke = fresh.contains("] You:");
     let kept = keep(questions.iter().map(|q| split_question(q)).filter(|(q, angle)| !angle.is_empty() && asked_of_john(q, john_spoke) && !small_talk(q) && grounded(q, &source)).collect(), &tracker.texts(Kind::Question));
-    out.extend(kept.into_iter().map(|(text, detail)| Item { id: String::new(), kind: Kind::Question, at, text, detail, done: false }));
+    out.extend(kept.into_iter().map(|(text, detail)| Item { id: String::new(), kind: Kind::Question, at, text, detail, done: false, unbacked: None }));
     let actions = lists.get(1).cloned().unwrap_or_default();
     let actions: Vec<(String, String)> = actions.iter().map(|a| split(a)).map(|(who, what)| if what.is_empty() { (String::new(), who) } else { (who, what) }).collect();
     let actions = actions.into_iter().filter(|(_, what)| a_task(what) && grounded(what, &source)).map(|(who, what)| (what, owner(&who, &source))).collect();
-    out.extend(keep(actions, &tracker.texts(Kind::Action)).into_iter().map(|(text, detail)| Item { id: String::new(), kind: Kind::Action, at, text, detail, done: false }));
+    out.extend(keep(actions, &tracker.texts(Kind::Action)).into_iter().map(|(text, detail)| Item { id: String::new(), kind: Kind::Action, at, text, detail, done: false, unbacked: None }));
     Ok(out)
 }
 
@@ -362,13 +367,13 @@ mod tests {
     #[test]
     fn ticking_off_and_the_file_shape() {
         let mut t = Tracker::default();
-        t.add(vec![Item { id: String::new(), kind: Kind::Action, at: 5.0, text: "send the logs".into(), detail: "You".into(), done: false }]);
+        t.add(vec![Item { id: String::new(), kind: Kind::Action, at: 5.0, text: "send the logs".into(), detail: "You".into(), done: false, unbacked: None }]);
         assert!(t.toggle("a-1") && t.items[0].done);
         assert!(!t.toggle("q-9"));
         let json = serde_json::to_string(&t).unwrap();
         assert_eq!(json, r#"{"items":[{"id":"a-1","kind":"action","at":5.0,"text":"send the logs","detail":"You","done":true}]}"#);
         assert_eq!(serde_json::from_str::<Tracker>(&json).unwrap(), t);
-        t.add(vec![Item { id: String::new(), kind: Kind::Question, at: 65.0, text: "Ready by Friday?".into(), detail: "Give a range.".into(), done: false }]);
+        t.add(vec![Item { id: String::new(), kind: Kind::Question, at: 65.0, text: "Ready by Friday?".into(), detail: "Give a range.".into(), done: false, unbacked: None }]);
         assert_eq!(t.markdown(), "## Asked of you\n\n- [ ] [1:05] Ready by Friday? *Give a range.*\n\n## To do\n\n- [x] [0:05] You: send the logs\n\n");
         assert_eq!(Tracker::default().markdown(), "");
     }

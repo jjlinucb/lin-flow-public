@@ -416,6 +416,7 @@ function TrackerList({ id, tracker, onChange, onError }: { id: string; tracker: 
               {kind === "action" ? <b>{i.detail}: </b> : null}
               {i.text}
               {kind === "question" && i.detail ? <div class="muted">{i.detail}</div> : null}
+              {i.unbacked ? <div class="muted" title={i.unbacked}>Not backed by the transcript: {i.unbacked}</div> : null}
             </span>
             <span class="muted">{clock(i.at)}</span>
           </label>
