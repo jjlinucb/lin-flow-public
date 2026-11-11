@@ -62,10 +62,24 @@ jobs:
           workspaces: next
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # Lean checks the proofs in next/proofs (core/tests/proofs.rs), here only: Windows minutes
+      # cost double, and the proofs are the same on every system.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: elan-${{ hashFiles('next/proofs/lean-toolchain') }}
+
+      - name: Lean
+        run: |
+          [ -x ~/.elan/bin/lake ] || curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none --no-modify-path
+          cd proofs && ~/.elan/bin/lake --version
+
       # The app itself needs WebKitGTK on Linux, and nobody runs it there. Everything under it
       # builds against the platform crate's stand-ins.
-      - name: Tests, the laws among them
+      - name: Tests, the laws and the proofs among them
         run: cargo test --workspace --exclude lin-flow-next --no-fail-fast
+        env:
+          LINFLOW_REQUIRE_LEAN: 1
 
       - name: Lint
         run: cargo clippy --workspace --exclude lin-flow-next --all-targets -- -D warnings
