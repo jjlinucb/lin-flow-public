@@ -586,8 +586,7 @@ fn line() -> impl Strategy<Value = String> {
 }
 
 fn rule_like(line: &str) -> bool {
-    let s = line.trim();
-    !s.starts_with('#') && s.contains("=>")
+    !parse_replacements(line).is_empty()
 }
 
 proptest! {
@@ -613,11 +612,11 @@ proptest! {
     }
 }
 
-/// Outside the promise, and a question for John: a line with `=>` that the parser cannot read,
-/// because nothing comes before the arrow, is dropped on save. Pinned so a change is seen.
+/// John's call (2026-11-10): a line with `=>` that the parser cannot read, because nothing comes
+/// before the arrow, is kept on save like any other line Lin Flow doesn't understand.
 #[test]
-fn dictionary_save_drops_an_arrow_with_nothing_before_it() {
+fn dictionary_save_keeps_an_arrow_with_nothing_before_it() {
     let saved = replacements_file(&[], "=> Lin Flow\n# kept");
-    assert!(!saved.contains("=> Lin Flow"));
+    assert!(saved.contains("=> Lin Flow"));
     assert!(saved.contains("# kept"));
 }

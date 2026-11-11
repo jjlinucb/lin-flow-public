@@ -103,7 +103,8 @@ pub fn parse_replacements(data: &str) -> Vec<Replacement> {
 }
 
 /// The `replacements.txt` to write, carrying forward every line the parser could not read: a
-/// comment, a blank-separated group heading, an arrow typed as `->`. A line Lin Flow does not
+/// comment, a blank-separated group heading, an arrow typed as `->`, an arrow with nothing before
+/// it (`=> Lin Flow`, John's call 2026-11-10). A line Lin Flow does not
 /// understand is not a line it may throw away.
 pub fn replacements_file(replacements: &[Replacement], existing: &str) -> String {
     let kept: Vec<&str> = lines(existing)
@@ -112,7 +113,7 @@ pub fn replacements_file(replacements: &[Replacement], existing: &str) -> String
             if s.is_empty() || s == REPLACEMENTS_HEADER || s == KEPT_HEADER {
                 return false;
             }
-            !(!s.starts_with('#') && s.contains("=>"))
+            parse_replacements(line).is_empty()
         })
         .collect();
     let rules: Vec<String> = replacements
