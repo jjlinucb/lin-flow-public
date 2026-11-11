@@ -1,0 +1,9 @@
+name = "linflow-proofs"
+defaultTargets = ["LinFlow"]
+
+[leanOptions]
+# A `sorry` is a warning in Lean, which would let an unproved promise build. Not here.
+warningAsError = true
+
+[[lean_lib]]
+name = "LinFlow"

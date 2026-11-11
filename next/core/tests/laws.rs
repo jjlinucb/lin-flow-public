@@ -560,3 +560,64 @@ fn check_sync(edits: &[Edit]) -> Result<(), TestCaseError> {
         Ok(())
 }
 
+
+// ---- Saving the dictionary (proved in next/proofs/LinFlow/Dictionary.lean) -------------------
+//
+// The proof is about a model that takes three things of the real parser and writer as given.
+// These laws check those three on the real code, then the promise itself end to end.
+
+/// A correction as the Dictionary would hold one: trimmed, nothing that reads as a comment.
+fn rule() -> impl Strategy<Value = Replacement> {
+    ("[A-Za-z][A-Za-z ']{0,10}[A-Za-z]", "[A-Za-z0-9][A-Za-z0-9 .']{0,10}", any::<bool>())
+        .prop_map(|(from, to, learned)| Replacement { from: from.trim().to_string(), to: to.trim().to_string(), learned })
+}
+
+/// A line already in the file: corrections, comments, headings, near misses of each.
+fn line() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just("# my own note".to_string()),
+        Just("Names".to_string()),
+        Just("Lin Fo -> Lin Flow".to_string()),
+        Just("  Wisper => Wispr Flow  ".to_string()),
+        Just("#off => on".to_string()),
+        Just("   ".to_string()),
+        "[A-Za-z#=>\\- ]{1,16}",
+    ]
+}
+
+fn rule_like(line: &str) -> bool {
+    let s = line.trim();
+    !s.starts_with('#') && s.contains("=>")
+}
+
+proptest! {
+    #![proptest_config(config(400))]
+
+    /// Saving keeps, word for word, every line that isn't a correction, and reading the saved file
+    /// back gives exactly the corrections saved, in order. Covers the model's three givens: a
+    /// written correction reads back as itself, the headers read as nothing, and so does any line
+    /// that is not rule-like.
+    #[test]
+    fn dictionary_save_keeps_lines_and_reads_back(rules in prop::collection::vec(rule(), 0..8),
+                                                  existing in prop::collection::vec(line(), 0..10)) {
+        let text = existing.join("\n");
+        let saved = replacements_file(&rules, &text);
+        prop_assert_eq!(parse_replacements(&saved), rules.clone());
+        let lines: Vec<&str> = saved.lines().collect();
+        for l in &existing {
+            if !l.trim().is_empty() && !rule_like(l) {
+                prop_assert!(lines.contains(&l.as_str()), "lost {:?}", l);
+                prop_assert!(parse_replacements(l).is_empty(), "{:?} read as a correction", l);
+            }
+        }
+    }
+}
+
+/// Outside the promise, and a question for John: a line with `=>` that the parser cannot read,
+/// because nothing comes before the arrow, is dropped on save. Pinned so a change is seen.
+#[test]
+fn dictionary_save_drops_an_arrow_with_nothing_before_it() {
+    let saved = replacements_file(&[], "=> Lin Flow\n# kept");
+    assert!(!saved.contains("=> Lin Flow"));
+    assert!(saved.contains("# kept"));
+}
